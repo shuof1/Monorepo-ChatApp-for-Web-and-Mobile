@@ -1,0 +1,12 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "sync-engine": [
+        "../../packages/sync-engine/dist"
+      ]
+    }
+  }
+}

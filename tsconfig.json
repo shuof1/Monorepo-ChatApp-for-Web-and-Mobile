@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/sync-engine" },
+    { "path": "packages/adapter-firestore-web" },
+    { "path": "packages/adapter-firestore-rn" }, 
+    { "path": "apps/web" },
+    { "path": "apps/mobile" }
+  ]
+}

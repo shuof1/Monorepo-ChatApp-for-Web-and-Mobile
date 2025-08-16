@@ -1,0 +1,33 @@
+{
+  "name": "adapter-firestore-rn",
+  "version": "0.0.1",
+  "description": "React Native Firebase adapter for sync-engine (online edit/delete minimal).",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@react-native-firebase/app": "^23.0.1",
+    "@react-native-firebase/firestore": "^23.0.1",
+    "sync-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "rimraf": "^6.0.0"
+  },
+  "peerDependencies": {
+    "react-native": ">=0.73"
+  }
+}

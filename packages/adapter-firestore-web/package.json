@@ -1,0 +1,29 @@
+{
+  "name": "adapter-firestore-web",
+  "version": "0.0.1",
+  "description": "Firestore v9 adapter for sync-engine (online edit/delete minimal).",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "firebase": "^12.1.0",
+    "sync-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "rimraf": "^6.0.0"
+  }
+}

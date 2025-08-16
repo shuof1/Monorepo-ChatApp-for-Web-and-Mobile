@@ -1,0 +1,46 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "preserve", // 或 "react-jsx" 任意其一
+    "esModuleInterop": true, // 解决默认导入报错
+    "skipLibCheck": true,
+    "strict": true,
+    "moduleResolution": "Bundler",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "types": [
+      "react",
+      "react-dom",
+      "node"
+    ],
+    "target": "ES2017",
+    "allowJs": true,
+    "incremental": true,
+    "module": "esnext",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "paths": {
+      "sync-engine": [
+        "../../packages/sync-engine/dist"
+      ]
+    },
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "next-env.d.ts",
+    ".next/types/**/*.ts",
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

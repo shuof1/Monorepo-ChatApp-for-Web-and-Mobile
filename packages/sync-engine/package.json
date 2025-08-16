@@ -1,0 +1,25 @@
+{
+  "name": "sync-engine",
+  "version": "0.0.1",
+  "description": "Platform-agnostic sync engine for chat edit/delete (online mode minimal).",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "rimraf": "^6.0.0"
+  }
+}
