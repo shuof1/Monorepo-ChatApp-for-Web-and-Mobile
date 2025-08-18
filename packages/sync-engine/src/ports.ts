@@ -24,7 +24,9 @@ export interface EventStorePort {
 
   subscribe(
     chatId: string,
-    onEvent: (ev: ChatEvent) => void
+    onEvent: (ev: ChatEvent) => void,
+    // --- 修改点：添加 options 参数 ---
+    opts?: { sinceMs?: Millis }
   ): Unsubscribe;
 }
 

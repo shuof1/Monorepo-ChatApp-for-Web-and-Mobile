@@ -9,14 +9,18 @@ export type GiftedMsg = {
   text: string;
   createdAt: Date;
   user: { _id: string; name?: string };
+  updatedAt: Date; // 将 updatedAt 传进去
+  deleted: Boolean;   // 将 deleted 状态传进去
 };
 
 function toGifted(m: ChatMsg): GiftedMsg {
   return {
     _id: m.id,
     text: m.deleted ? '(deleted)' : (m.text ?? ''),
-    createdAt: m.updatedAt ?? m.createdAt,
+    createdAt: m.createdAt,
     user: { _id: m.authorId },
+    updatedAt: m.updatedAt, // 将 updatedAt 传进去
+    deleted: m.deleted,   // 将 deleted 状态传进去
   };
 }
 
@@ -34,7 +38,11 @@ export function useChatSession(chatPartnerId: string) {
     const off = session.subscribe((map) => {
       const arr = Array.from(map.values()).map(toGifted);
       // GiftedChat 需要“最新在前”
-      arr.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      arr.sort((a, b) => {
+        const ta = (a.createdAt ?? a.updatedAt).getTime();
+        const tb = (b.createdAt ?? b.updatedAt).getTime();
+        return tb - ta;
+      });
       setMessages(arr);
     });
     session.start();

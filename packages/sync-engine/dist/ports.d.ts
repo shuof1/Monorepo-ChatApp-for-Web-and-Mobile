@@ -17,7 +17,9 @@ export interface EventStorePort {
         sinceMs?: Millis;
         limit?: number;
     }): Promise<ChatEvent[]>;
-    subscribe(chatId: string, onEvent: (ev: ChatEvent) => void): Unsubscribe;
+    subscribe(chatId: string, onEvent: (ev: ChatEvent) => void, opts?: {
+        sinceMs?: Millis;
+    }): Unsubscribe;
 }
 /** 时钟端口：提供本地毫秒时间，用于填充 clientTime */
 export interface ClockPort {

@@ -16,27 +16,27 @@ export function foldEvents(events: ChatEvent[]): Map<string, ChatMsg> {
 
     if (ev.type === 'create') {
       const existing = state.get(ev.messageId);
-      // —— 策略 A：允许“复活” ——（保留你当前行为）
-      state.set(ev.messageId, {
-        id: ev.messageId,
-        text: ev.text,
-        authorId: ev.authorId,
-        // createdAt：若已存在则不改；否则用本次事件时间
-        createdAt: existing?.createdAt ?? new Date(logicalTime(ev)),
-        // 如果之前被删，这里视为新版本，去掉 deleted
-        updatedAt: existing ? new Date(logicalTime(ev)) : undefined,
-        deleted: undefined,
-      });
+      // // —— 策略 A：允许“复活” ——（保留你当前行为）
+      // state.set(ev.messageId, {
+      //   id: ev.messageId,
+      //   text: ev.text,
+      //   authorId: ev.authorId,
+      //   // createdAt：若已存在则不改；否则用本次事件时间
+      //   createdAt: existing?.createdAt ?? new Date(logicalTime(ev)),
+      //   // 如果之前被删，这里视为新版本，去掉 deleted
+      //   updatedAt: existing ? new Date(logicalTime(ev)) : undefined,
+      //   deleted: undefined,
+      // });
 
       // —— 策略 B：禁止“复活”（如需，替换上面的分支）——
-      // if (!existing) {
-      //   state.set(ev.messageId, {
-      //     id: ev.messageId,
-      //     text: ev.text,
-      //     authorId: ev.authorId,
-      //     createdAt: new Date(logicalTime(ev)),
-      //   });
-      // }
+      if (!existing) {
+        state.set(ev.messageId, {
+          id: ev.messageId,
+          text: ev.text,
+          authorId: ev.authorId,
+          createdAt: new Date(logicalTime(ev)),
+        });
+      }
     }
 
     else if (ev.type === 'edit') {

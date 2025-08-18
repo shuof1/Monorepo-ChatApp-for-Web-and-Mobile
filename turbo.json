@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["pnpm-lock.yaml", "tsconfig.base.json"],
+  "tasks": {
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
+    "watch": { "dependsOn": ["^build"], "persistent": true, "cache": false },
+    "dev":   { "dependsOn": ["^build"], "cache": false },
+    "clean": { "cache": false }
+  }
+}

@@ -13,13 +13,17 @@
     }
   },
   "sideEffects": false,
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsup src/index.ts --out-dir dist --clean --dts --format cjs,esm",
+    "watch": "tsup src/index.ts --out-dir dist --watch --dts --format cjs,esm",
     "clean": "rimraf dist"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
-    "rimraf": "^6.0.0"
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
   }
 }

@@ -21,5 +21,7 @@ config.resolver.extraNodeModules = {
   '@react-native-firebase/app': path.resolve(workspaceRoot, 'node_modules/@react-native-firebase/app'),
   '@react-native-firebase/firestore': path.resolve(workspaceRoot, 'node_modules/@react-native-firebase/firestore'),
 };
+// 让 Metro 能看到 monorepo 根（含 packages/**/dist 的变化）
+config.watchFolders = [workspaceRoot];
 
 module.exports = config;

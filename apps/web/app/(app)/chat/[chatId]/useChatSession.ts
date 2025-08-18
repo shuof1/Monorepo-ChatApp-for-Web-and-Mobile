@@ -20,8 +20,8 @@ export function useChatSession(chatId: string, me: User | null) {
       const arr = Array.from(map.values());
       // 可选：按 createdAt/updatedAt 排序
       arr.sort((a, b) => {
-        const ta = (a.updatedAt ?? a.createdAt).getTime();
-        const tb = (b.updatedAt ?? b.createdAt).getTime();
+        const ta = (a.createdAt ?? a.updatedAt).getTime();
+        const tb = (b.createdAt ?? b.updatedAt).getTime();
         return ta - tb;
       });
       setMessages(arr);

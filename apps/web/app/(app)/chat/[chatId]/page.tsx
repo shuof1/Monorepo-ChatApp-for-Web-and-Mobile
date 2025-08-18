@@ -115,7 +115,7 @@ export default function ChatPage() {
               title={m.deleted ? 'deleted' : undefined}
             >
               <div style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>
-                {m.deleted ? '(deleted)' : m.text}
+                {m.deleted ? '(deleted)' : ( m.updatedAt? m.text+' (edited)' : m.text)}
               </div>
               <div
                 style={{
@@ -125,7 +125,7 @@ export default function ChatPage() {
                   textAlign: mine ? 'right' : 'left',
                 }}
               >
-                {time}{m.updatedAt ? ' · edited' : ''}
+                {time}{m.deleted?' · deleted ':m.updatedAt ? ' · edited' : ''}
               </div>
 
               {/* 可选：演示 edit/delete（真实 UI 可换成菜单/图标） */}

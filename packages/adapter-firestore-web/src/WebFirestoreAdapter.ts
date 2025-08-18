@@ -85,8 +85,16 @@ export function createWebEventStore(db: Firestore): EventStorePort {
     },
 
     /** 实时订阅增量事件（按 clientTime 升序） */
-    subscribe(chatId: string, onEvent: (ev: ChatEvent) => void) {
-      const qy = query(eventsCol(db, chatId), orderBy('clientTime', 'asc'));
+    subscribe(chatId: string, onEvent: (ev: ChatEvent) => void, opts?: { sinceMs?: Millis }) {
+      // --- 修改点：将 query 的构建移到这里 ---
+      let qy = query(eventsCol(db, chatId), orderBy('clientTime', 'asc'));
+
+      // 如果传入了 sinceMs，只查询比它更新的事件
+      if (opts?.sinceMs != null) {
+        // 使用 "greater than" (>) 而不是 "greater than or equal to" (>=)
+        // 来避免把最后一条消息重复加载一次
+        qy = query(qy, where('clientTime', '>', opts.sinceMs));
+      }
       const unsub = onSnapshot(qy, snap => {
         // 仅处理新增（在线模式最小实现）
         snap.docChanges().forEach(ch => {

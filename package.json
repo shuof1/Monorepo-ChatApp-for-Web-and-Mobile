@@ -5,7 +5,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "concurrently -k -n WATCH,APPS \"turbo run watch --parallel --filter=./packages/*\" \"turbo run dev --parallel --filter=web\" \"pnpm --filter mobile run android:dev\"",
+    "dev:web": "concurrently -k -n WATCH,WEB \"turbo run watch --parallel --filter=./packages/*\" \"turbo run dev --filter=web\"",
+    "dev:mobile": "concurrently -k -n WATCH,MOBILE \"turbo run watch --parallel --filter=./packages/*\" \"pnpm --filter mobile run android:dev\"",
+    "build": "turbo run build",
+    "clean": "turbo run clean --parallel && rimraf node_modules .turbo"
   },
   "keywords": [],
   "author": "",
@@ -16,13 +20,15 @@
     "packages/*"
   ],
   "devDependencies": {
+    "concurrently": "^9.2.0",
     "expo": "~53.0.20",
     "rimraf": "^6.0.0",
+    "turbo": "^2.5.6",
     "typescript": "^5.4.0"
   },
   "pnpm": {
     "overrides": {
-      "firebase": "12.1.0"   
+      "firebase": "12.1.0"
     }
   }
 }

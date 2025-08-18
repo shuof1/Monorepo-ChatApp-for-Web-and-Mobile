@@ -1,2 +1,6 @@
 node_modules
 google-services.json
+
+.turbo/
+
+packages/*/dist/

@@ -41,7 +41,22 @@ export function createChatSession(chatId: string): ChatSession {
     const initial = await ports.store.list(chatId);
     events = events.concat(initial);
     notify();
-    unsub = ports.store.subscribe(chatId, (ev) => { events.push(ev); notify(); });
+    // --- 新增逻辑 ---
+    // 找到本地最新事件的时间戳
+    let lastKnownTime: Millis | undefined = undefined;
+    if (events.length > 0) {
+      // 假设 events 已经按 clientTime 升序排列
+      lastKnownTime = events[events.length - 1].clientTime;
+    }
+    unsub = ports.store.subscribe(chatId, (ev) => {
+      if (ev.clientTime === lastKnownTime) {
+        if (events.some(e => e.opId === ev.opId)) {
+          // 忽略重复的事件
+          return;
+        }
+      }
+      events.push(ev); notify();
+    });
   };
 
   const stop = () => { unsub?.(); unsub = null; started = false; };

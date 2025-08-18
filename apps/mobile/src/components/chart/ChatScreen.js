@@ -16,6 +16,8 @@ import auth from "@react-native-firebase/auth";
 import { useRoute } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useChatSession } from "../../hooks/useChatSession";
+import { renderCustomBubble } from "./renderCustomBubble";
+
 
 export default function ChatScreen() {
   const { userId, userName } = useRoute().params || {};
@@ -116,13 +118,13 @@ export default function ChatScreen() {
           marginHorizontal: 10,
           marginBottom: 5,
           fontSize: 10,
-          color: props.position === "left" ? "black" : "white",
+          color: "white",
         }}
       >
-        {new Date(props.currentMessage.createdAt).toLocaleTimeString([], {
+        {new Date(props.currentMessage.updatedAt??props.currentMessage.createdAt).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
-        })}
+        })}{props.currentMessage.deleted?' · deleted ':props.currentMessage.updatedAt ? " · edited" : ""}
       </Text>
     </View>
   );
@@ -134,7 +136,7 @@ export default function ChatScreen() {
         onSend={onSend}
         user={{ _id: me?.uid, name: me?.displayName || "Me" }}
         onLongPress={onLongPress}             // ← 长按菜单
-        renderBubble={renderBubble}
+        renderBubble={renderCustomBubble}
         renderTime={renderTime}
         renderDay={() => null}
         placeholder="Type a message …"

@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "expo start",
+    
+    "start": "expo start --dev-client -c",
     "android": "expo run:android",
+    "android:dev": "expo run:android && expo start --dev-client -c",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "dev": "expo start --dev-client -c"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.2",
