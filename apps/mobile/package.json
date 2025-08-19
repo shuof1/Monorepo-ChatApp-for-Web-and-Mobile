@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    
     "start": "expo start --dev-client -c",
     "android": "expo run:android",
     "android:dev": "expo run:android && expo start --dev-client -c",
@@ -36,7 +35,9 @@
     "react-native-reanimated": "^3.17.5",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
-    "sync-engine": "workspace:*"
+    "sync-engine": "workspace:*",
+    "adapter-storage-wm": "workspace:*",
+    "@nozbe/watermelondb": "^0.28.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

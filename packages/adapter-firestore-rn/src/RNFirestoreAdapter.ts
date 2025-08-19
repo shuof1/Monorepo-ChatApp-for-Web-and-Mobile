@@ -59,7 +59,7 @@ export function createRNEventStore(): EventStorePort {
     },
 
     /** 初始化加载（按 clientTime 升序；可选 since/limit） */
-    async list(chatId, opts) {
+    async list(chatId: string, opts?: { sinceMs?: Millis; limit?: number }) {
       let q = eventsCol(chatId).orderBy('clientTime', 'asc') as
         FirebaseFirestoreTypes.Query<FirebaseFirestoreTypes.DocumentData>;
 
@@ -75,7 +75,7 @@ export function createRNEventStore(): EventStorePort {
     },
 
     /** 实时订阅（只处理新增，在线最小实现） */
-    subscribe(chatId, onEvent, opts?: { sinceMs?: Millis }) {
+    subscribe(chatId: string, onEvent: (ev: ChatEvent) => void, opts?: { sinceMs?: Millis }) {
       let q = eventsCol(chatId).orderBy('clientTime', 'asc');
       // 如果传入了 sinceMs，只查询比它更新的事件
       if (opts?.sinceMs != null) {

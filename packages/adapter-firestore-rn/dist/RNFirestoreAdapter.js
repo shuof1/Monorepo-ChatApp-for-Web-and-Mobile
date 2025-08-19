@@ -52,8 +52,14 @@ export function createRNEventStore() {
             return snap.docs.map(d => toChatEvent(d.data()));
         },
         /** 实时订阅（只处理新增，在线最小实现） */
-        subscribe(chatId, onEvent) {
-            const q = eventsCol(chatId).orderBy('clientTime', 'asc');
+        subscribe(chatId, onEvent, opts) {
+            let q = eventsCol(chatId).orderBy('clientTime', 'asc');
+            // 如果传入了 sinceMs，只查询比它更新的事件
+            if (opts?.sinceMs != null) {
+                // 使用 "greater than" (>) 而不是 "greater than or equal to" (>=)
+                // 来避免把最后一条消息重复加载一次
+                q = q.where('clientTime', '>', opts.sinceMs);
+            }
             const unsub = q.onSnapshot(snap => {
                 snap.docChanges().forEach(ch => {
                     if (ch.type === 'added')

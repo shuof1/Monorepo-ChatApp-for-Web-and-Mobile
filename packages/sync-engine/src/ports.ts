@@ -1,5 +1,5 @@
 // packages/sync-engine/src/ports.ts
-import type { ChatEvent, Millis } from './types';
+import type { ChatEvent,  ChatMsg, Millis } from './types';
 
 /** 取消订阅函数 */
 export type Unsubscribe = () => void;
@@ -49,4 +49,33 @@ export interface SyncEnginePorts {
   store: EventStorePort;
   clock: ClockPort;
   ids: IdPort;
+  local?: LocalStoragePort;   // 本地（watermelon）
+  outbox?: OutboxPort;        // 本地队列
 }
+
+
+/** 新加功能：离线 */
+export type LocalStoragePort = {
+  // 恢复：加载某个 chat 已存的“事件历史”
+  loadEvents(chatId: string, sinceMs?: Millis): Promise<ChatEvent[]>;
+  // 追加：把新事件持久化到本地
+  appendEvents(chatId: string, events: ChatEvent[]): Promise<void>;
+  // 可选：保存/加载折叠后的快照（提升冷启动渲染速度）
+  saveSnapshot(chatId: string, messages: Map<string, ChatMsg>): Promise<void>;
+  loadSnapshot(chatId: string): Promise<Map<string, ChatMsg> | null>;
+  // 清理本地缓存（登出/重置）
+  clearChat(chatId: string): Promise<void>;
+};
+
+export type OutboxItem =
+  | ({ kind: 'create' } & { chatId: string; messageId: string; text: string; authorId: string; clientTime: number; opId: string; clientId: string })
+  | ({ kind: 'edit'   } & { chatId: string; messageId: string; text: string; authorId: string; clientTime: number; opId: string; clientId: string })
+  | ({ kind: 'delete' } & { chatId: string; messageId: string; authorId: string; clientTime: number; opId: string; clientId: string });
+
+export type OutboxPort = {
+  enqueue(items: OutboxItem[]): Promise<void>;
+  peekBatch(limit: number): Promise<OutboxItem[]>; // 不消费
+  markDone(opIds: string[]): Promise<void>;        // 成功后删除
+  size(): Promise<number>;
+  clear(): Promise<void>;
+};

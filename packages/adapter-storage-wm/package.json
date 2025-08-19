@@ -1,7 +1,7 @@
 {
-  "name": "adapter-firestore-web",
-  "version": "0.0.1",
-  "description": "Firestore v9 adapter for sync-engine (online edit/delete minimal).",
+  "name": "adapter-storage-wm",
+  "version": "1.0.0",
+  "description": "",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
@@ -18,16 +18,20 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "watch": "tsup src/index.ts --out-dir dist --watch --dts --format cjs,esm",
-    "clean": "rimraf dist"
+    "dev": "tsup src/index.ts --out-dir dist --format cjs,esm --dts --watch --tsconfig tsconfig.tsup.json"
+    
   },
   "dependencies": {
-    "firebase": "^12.1.0",
+    "@nozbe/watermelondb": "^0.28.0",
     "sync-engine": "workspace:*"
   },
+
   "devDependencies": {
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2"
-  }
+  },
+  "keywords": [],
+  "author": "",
+  "packageManager": "pnpm@10.14.0"
 }

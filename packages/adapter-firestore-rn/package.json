@@ -17,7 +17,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --out-dir dist --clean --dts --format cjs,esm",
+    "build": "tsc -p tsconfig.json",
     "watch": "tsup src/index.ts --out-dir dist --watch --dts --format cjs,esm",
     "clean": "rimraf dist"
   },
