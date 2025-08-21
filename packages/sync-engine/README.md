@@ -4,15 +4,15 @@ A **platform-agnostic CRDT-based synchronization engine** ensuring consistent ch
 
 ## ✨ Features
 
-Event-sourced **reducer** for message state
+- Event-sourced **reducer** for message state
 
-Handles **Edit vs. Delete**, **Edit vs. Reply**, **Edit vs. Edit**
+- Handles **Edit vs. Delete**, **Edit vs. Reply**, **Edit vs. Edit**
 
-Pure TypeScript, **no platform dependency**
+- Pure TypeScript, **no platform dependency**
 
-Extensible **ports/adapters** for Firestore & storage layers
+- Extensible **ports/adapters** for Firestore & storage layers
 
-Supports real-time + offline folding of events
+- Supports real-time + offline folding of events
 
 ## 🚀 Quick Start (Development)
 ```
@@ -23,11 +23,11 @@ pnpm build
 
 ## 🛠️ Technology Stack
 
-Language: **TypeScript**
+- Language: **TypeScript**
 
-Architecture: **Event Sourcing + CRDT**
+- Architecture: **Event Sourcing + CRDT**
 
-Bundling: **tsup**
+- Bundling: **tsup**
 
 
 ## 📁 Project Structure
