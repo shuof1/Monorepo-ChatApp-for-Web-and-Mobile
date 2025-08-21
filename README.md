@@ -18,7 +18,7 @@ A modern web chat client built with Next.js and Firebase Firestore.
 
 **Technologies**: Next.js, TypeScript, Firebase Firestore, CRDT strategies
 
-🚀 Run: `apps/web` | 📖 Documentation
+🚀 Run: `apps/web` | [📖 Documentation](./apps/web/README.md)
 
 ---
 
@@ -40,7 +40,7 @@ A cross-platform chat client built with React Native and Expo.
 
 **Technologies**: React Native, Expo, TypeScript, Firebase, WatermelonDB
 
-📱 Run: `apps/mobile` | 📖 Documentation
+📱 Run: `apps/mobile` | [📖 Documentation](./apps/mobile/README.md)
 
 ---
 
@@ -60,7 +60,7 @@ Core engine responsible for event folding, state management, and CRDT resolution
 
 **Technologies**: TypeScript, CRDTs, Event Sourcing
 
-📦 Package: `packages/sync-engine` | 📖 Documentation
+📦 Package: `packages/sync-engine` | [📖 Documentation](./packages/sync-engine/README.md)
 
 ---
 
