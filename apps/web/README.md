@@ -4,13 +4,13 @@ A Next.js powered chat application for browsers, seamlessly integrated with **Fi
 
 ## ✨ Features
 
-Real-time chat via Firestore backend
+- Real-time chat via Firestore backend
 
-Edit & delete messages with **CRDT conflict resolution**
+- Edit & delete messages with **CRDT conflict resolution**
 
-Offline-first mode with snapshots & queued Outbox
+- Offline-first mode with snapshots & queued Outbox
 
-Responsive UI (desktop & mobile browsers)
+- Responsive UI (desktop & mobile browsers)
 
 
 ## 🚀 Quick Start
@@ -26,15 +26,15 @@ App runs at http://localhost:3000
 
 ## 🛠️ Technology Stack
 
-Framework: **Next.js (App Router)**
+- Framework: **Next.js (App Router)**
 
-Database: **Firebase Firestore v9**
+- Database: **Firebase Firestore v9**
 
-State Sync: **Sync Engine (CRDT event folding)**
+- State Sync: **Sync Engine (CRDT event folding)**
 
-Styling: **TailwindCSS**
+- Styling: **TailwindCSS**
 
-Tooling: **pnpm**, **Turborepo**, **SWC**
+- Tooling: **pnpm**, **Turborepo**, **SWC**
 
 ## 📁 Project Structure
 ```
