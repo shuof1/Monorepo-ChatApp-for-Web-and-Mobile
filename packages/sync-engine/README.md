@@ -38,7 +38,6 @@ packages/sync-engine/
 │   ├── reducer.ts        # Pure reducer logic
 │   ├── ports.ts          # Adapter interfaces
 │   └── index.ts          # Public API
-├── tests/                # Unit tests
 ├── package.json
 └── README.md
 ```
