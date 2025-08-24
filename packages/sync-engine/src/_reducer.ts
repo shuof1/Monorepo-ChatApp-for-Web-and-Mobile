@@ -1,6 +1,9 @@
 // _reducer.ts
 import { ChatEvent, ChatMsg, compareClock, Millis } from './types';
 
+
+
+
 // 用 clientTime 作为逻辑时钟；serverTimeMs 仅用于展示或审计
 const logicalTime = (e: ChatEvent): Millis => e.clientTime;
 const clockOf = (e: ChatEvent) => ({ t: logicalTime(e), tie: e.opId });
@@ -70,3 +73,5 @@ export function foldEvents(events: ChatEvent[]): Map<string, ChatMsg> {
 
   return state;
 }
+
+

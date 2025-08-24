@@ -1,6 +1,6 @@
 // apps/web/app/chat/[chatId]/useChatSession.ts
 "use client";
-import { useEffect, useMemo, useState,useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { createChatSession } from "../../../../lib/engine";
 import type { ChatMsg } from "sync-engine";
 import type { User } from "firebase/auth";
@@ -61,11 +61,42 @@ export function useChatSession(chatId: string, me: User | null) {
     [session, me?.uid, chatId]
   );
 
+  const addReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      const authorId = me?.uid;
+      if (!authorId || !chatId || !messageId || !emoji) return;
+      await session.addReaction({ chatId, messageId, emoji, authorId });
+    },
+    [session, me?.uid, chatId]
+  );
+
+  const removeReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      const authorId = me?.uid;
+      if (!authorId || !chatId || !messageId || !emoji) return;
+      await session.removeReaction({ chatId, messageId, emoji, authorId });
+    },
+    [session, me?.uid, chatId]
+  );
+
+  const toggleReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      const authorId = me?.uid;
+      if (!authorId || !chatId || !messageId || !emoji) return;
+      await session.toggleReaction({ chatId, messageId, emoji, authorId });
+    },
+    [session, me?.uid, chatId]
+  );
+
+
   return {
     session,          // 如果需要直接访问底层 API 也在这里
     messages,
     sendMessage,
     editMessage,
     deleteMessage,
+    addReaction,       // ✅ 新增
+    removeReaction,    // ✅ 新增
+    toggleReaction,    // ✅ 新增
   };
 }

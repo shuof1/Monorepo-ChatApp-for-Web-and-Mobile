@@ -1,6 +1,6 @@
 import { appSchema, tableName, tableSchema } from "@nozbe/watermelondb";
-
-export const SCHEMA_VERSION = 1
+import { schemaMigrations, addColumns } from '@nozbe/watermelondb/Schema/migrations';
+export const SCHEMA_VERSION = 2
 
 // 统一表名，避免硬编码
 export const TABLES = {
@@ -60,7 +60,11 @@ export const schema = appSchema({
                 { name: 'payload', type: 'string', isOptional: true },
 
                 // 是否仅本地存在（未上行/仅缓存）
-                { name: 'local_only', type: 'boolean', isOptional: true }
+                { name: 'local_only', type: 'boolean', isOptional: true },
+                // ✅ 新增：reaction / reply 专用字段（可选）
+                { name: 'emoji', type: 'string', isOptional: true },
+                { name: 'op', type: 'string', isOptional: true },        // 'add' | 'remove'
+                { name: 'reply_to', type: 'string', isOptional: true },
             ]
         }),
         // Outbox 队列（离线操作）
@@ -100,6 +104,24 @@ export const schema = appSchema({
         })
     ]
 })
+
+export const migrations = schemaMigrations({
+  migrations: [
+    {
+      toVersion: SCHEMA_VERSION,
+      steps: [
+        addColumns({
+          table: 'events',
+          columns: [
+            { name: 'emoji', type: 'string', isOptional: true },
+            { name: 'op', type: 'string', isOptional: true },
+            { name: 'reply_to', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
+  ],
+});
 
 
 export type TableName = typeof TABLES[keyof typeof TABLES]

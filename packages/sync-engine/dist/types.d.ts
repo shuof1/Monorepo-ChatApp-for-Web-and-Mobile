@@ -1,3 +1,4 @@
+import { LoroText } from 'loro-crdt';
 export type Millis = number;
 export type Clock = {
     t: Millis;
@@ -16,11 +17,20 @@ type BaseEvent = {
 export type ChatEvent = (BaseEvent & {
     type: 'create';
     text: string;
+    replyTo?: string;
 }) | (BaseEvent & {
     type: 'edit';
     text: string;
 }) | (BaseEvent & {
     type: 'delete';
+}) | (BaseEvent & {
+    type: 'reaction';
+    emoji: string;
+    op: 'add' | 'remove';
+}) | (BaseEvent & {
+    type: 'reply';
+    text: string;
+    replyTo: string;
 });
 export type ChatMsg = {
     id: string;
@@ -29,6 +39,19 @@ export type ChatMsg = {
     createdAt: Date;
     updatedAt?: Date;
     deleted?: boolean;
+    reactions?: Record<string, string[]>;
+    replyTo?: string;
+    replies?: string[];
+};
+export type InternalLoroChatMsg = {
+    text: LoroText;
+    authorId: string;
+    createdAt: number;
+    updatedAt?: number;
+    deleted?: boolean;
+    replyTo?: string;
+    reactions: Map<string, string[]>;
+    replies: string[];
 };
 export type ChatState = {
     byId: Record<string, ChatMsg>;

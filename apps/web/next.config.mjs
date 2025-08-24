@@ -11,6 +11,11 @@ const nextConfig = {
             fs: false,
             path: false,
         };
+
+        config.experiments = {
+            ...(config.experiments || {}),
+            asyncWebAssembly: true,
+        };
         return config;
     },
 

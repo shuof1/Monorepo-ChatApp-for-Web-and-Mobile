@@ -22,7 +22,8 @@
     "sync-engine": "workspace:*",
     "adapter-storage-wm": "workspace:*",
     "uuid": "^11.1.0",
-    "@nozbe/watermelondb": "^0.28.0"
+    "@nozbe/watermelondb": "^0.28.0",
+    "loro-crdt": "^1.5.11"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

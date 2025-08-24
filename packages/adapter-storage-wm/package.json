@@ -22,14 +22,15 @@
     
   },
   "dependencies": {
-    "@nozbe/watermelondb": "^0.28.0",
-    "sync-engine": "workspace:*"
+    "@nozbe/watermelondb": "^0.28.0"
+    
   },
 
   "devDependencies": {
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "sync-engine": "workspace:*"
   },
   "keywords": [],
   "author": "",

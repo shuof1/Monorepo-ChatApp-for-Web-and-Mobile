@@ -18,10 +18,30 @@ function toChatEvent(raw) {
         clientTime: raw.clientTime,
         serverTimeMs,
     };
-    if (raw.type === 'create' || raw.type === 'edit') {
-        return { ...base, text: (raw.text ?? '') };
+    switch (raw.type) {
+        case 'create':
+            return { text: String(raw.text ?? ''), ...base };
+        case 'edit':
+            return { text: String(raw.text ?? ''), ...base };
+        case 'delete':
+            return { ...base };
+        case 'reaction': {
+            const emoji = typeof raw.emoji === 'string' ? raw.emoji.trim() : '';
+            const op = raw.op === 'remove' ? 'remove' : 'add';
+            if (!emoji)
+                return base; // 跳过坏数据，避免崩溃
+            return { emoji, op, ...base };
+        }
+        case 'reply': {
+            const replyTo = typeof raw.replyTo === 'string' ? raw.replyTo : '';
+            const text = String(raw.text ?? '');
+            if (!replyTo)
+                return base; // 可按需放宽
+            return { replyTo, text, ...base };
+        }
+        default:
+            return base; // 跳过坏数据，避免崩溃
     }
-    return base; // delete
 }
 /** 仅负责事件读写订阅的最小实现 */
 export function createWebEventStore(db) {
@@ -38,8 +58,19 @@ export function createWebEventStore(db) {
                 clientTime: ev.clientTime,
                 serverTime: serverTimestamp(), // 仅供审计/排序参考
             };
-            if (ev.type === 'create' || ev.type === 'edit') {
-                docData.text = ev.text;
+            switch (ev.type) {
+                case 'create':
+                case 'edit':
+                    docData.text = ev.text;
+                    break;
+                case 'reaction':
+                    docData.emoji = ev.emoji; // ✅ 关键
+                    docData.op = ev.op; // ✅ 关键
+                    break;
+                case 'reply':
+                    docData.text = ev.text; // ✅ 关键
+                    docData.replyTo = ev.replyTo; // ✅ 关键
+                    break;
             }
             await addDoc(eventsCol(db, ev.chatId), docData);
         },
@@ -53,7 +84,10 @@ export function createWebEventStore(db) {
                 q = query(q, qLimit(opts.limit));
             }
             const snap = await getDocs(q);
-            return snap.docs.map(d => toChatEvent(d.data()));
+            // 过滤 null（比如旧的坏数据）
+            return snap.docs
+                .map(d => toChatEvent(d.data()))
+                .filter((x) => !!x);
         },
         /** 实时订阅增量事件（按 clientTime 升序） */
         subscribe(chatId, onEvent, opts) {

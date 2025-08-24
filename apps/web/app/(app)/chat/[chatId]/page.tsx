@@ -24,8 +24,10 @@ export default function ChatPage() {
 
   // const [messages, setMessages] = useState<ChatMsg[]>([]);
   // const [message,setMessages] = useChatSession(chatId,me);
-  const { messages, sendMessage, editMessage, deleteMessage } = useChatSession(chatId, me??null);
-
+  const { messages, sendMessage, editMessage, deleteMessage,
+    toggleReaction
+  } = useChatSession(chatId, me ?? null);
+  const EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '😢'];
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -98,9 +100,15 @@ export default function ChatPage() {
             hour: '2-digit',
             minute: '2-digit',
           });
+          // 取出 reactions，规避 undefined
+          const r = m.reactions ?? {};
+          const myUid = me.uid;
+
+          // 不在常用表情里的“额外反应”，也要显示（例如别人用的稀有表情）
+          const extra = Object.keys(r).filter((e) => !EMOJIS.includes(e));
           return (
             <div
-              key={m.id}                                    
+              key={m.id}
               style={{
                 alignSelf: mine ? 'flex-end' : 'flex-start',
                 maxWidth: '80%',
@@ -115,7 +123,7 @@ export default function ChatPage() {
               title={m.deleted ? 'deleted' : undefined}
             >
               <div style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>
-                {m.deleted ? '(deleted)' : ( m.updatedAt? m.text+' (edited)' : m.text)}
+                {m.deleted ? '(deleted)' : (m.updatedAt ? m.text + ' (edited)' : m.text)}
               </div>
               <div
                 style={{
@@ -125,12 +133,14 @@ export default function ChatPage() {
                   textAlign: mine ? 'right' : 'left',
                 }}
               >
-                {time}{m.deleted?' · deleted ':m.updatedAt ? ' · edited' : ''}
+                {time}{m.deleted ? ' · deleted ' : m.updatedAt ? ' · edited' : ''}
               </div>
+
 
               {/* 可选：演示 edit/delete（真实 UI 可换成菜单/图标） */}
               {!m.deleted && mine && (
                 <div style={{ marginTop: 6, display: 'flex', gap: 8, fontSize: 12 }}>
+
                   <button
                     onClick={async () => {
                       const newText = prompt('Edit message:', m.text ?? '');
@@ -148,6 +158,61 @@ export default function ChatPage() {
                   </button>
                 </div>
               )}
+              {!m.deleted && (
+                <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[...EMOJIS, ...extra].map((emoji) => {
+                    const users = r[emoji] ?? [];
+                    const count = users.length;
+                    const iReacted = users.includes(myUid);
+                    return (
+                      <button
+                        key={emoji}
+                        onClick={() => toggleReaction(m.id, emoji)}
+                        title={iReacted ? '取消该表情' : '添加该表情'}
+                        disabled={m.deleted}
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          border: '1px solid rgba(255,255,255,.5)',
+                          background: iReacted ? 'rgba(255,255,255,.2)' : 'transparent',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          fontSize: 14,
+                        }}
+                        aria-pressed={iReacted}
+                      >
+                        <span>{emoji}</span>
+                        {count > 0 && <span style={{ fontSize: 12, marginLeft: 6 }}>{count}</span>}
+                      </button>
+                    );
+                  })}
+
+
+                  {/* 自定义表情（简单版，先用 prompt；以后可换 emoji picker） */}
+                  <button
+                    onClick={() => {
+                      const e = prompt('React with emoji:');
+                      if (e && e.trim()) toggleReaction(m.id, e.trim());
+                    }}
+                    title="添加其他表情"
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: 999,
+                      border: '1px solid rgba(255,255,255,.35)',
+                      background: 'transparent',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                    }}
+                    aria-label="Add reaction"
+                  >
+                    ➕
+                  </button>
+
+                </div>
+              )
+
+              }
             </div>
           );
         })}

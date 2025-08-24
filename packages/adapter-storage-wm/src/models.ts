@@ -3,7 +3,13 @@ import { Model } from "@nozbe/watermelondb";
 import { field,json, readonly, text} from "@nozbe/watermelondb/decorators";
 import type { Associations } from "@nozbe/watermelondb/Model";
 import { TABLES } from "./schema";
+import type { ChatEvent } from "sync-engine";
 
+// —— 可选：给消息快照里的扩展信息一个明确类型 —— //
+export interface MessagePayload {
+  reactions?: Record<string, string[]>; // 内部 Loro 转换后的快照
+  // 未来还可加 thread/replyCount 等
+}
 
 // ---- JSON sanitizer ----
 // WatermelonDB 的 @json 需要一个 sanitizer，返回“可序列化的干净对象”
@@ -48,8 +54,8 @@ export class Message extends Model {
   // 发送状态（pending/sent/failed…）
   @field('status') status!: string | null
 
-  // 扩展信息（以字符串存储；@json 提供对象访问体验）
-  @json('payload', identityJson) payload!: any | null
+  // 扩展信息（以字符串存储；@json 提供对象访问体验）// ✅ 用于快照，而不是事件
+  @json('payload', identityJson) payload!: MessagePayload  | null
 
   // 仅本地存在标识
   @field('local_only') localOnly!: boolean | null
@@ -72,7 +78,7 @@ export class OutboxItem extends Model {
   static associations: Associations = {}
 
   // 操作类型：create/edit/delete/ack…
-  @field('op') op!: string
+  @field('op') op!: ChatEvent['type'];
 
   // 作用域
   @field('chat_id') chatId!: string | null
@@ -89,8 +95,9 @@ export class OutboxItem extends Model {
   @field('attempt') attempt!: number | null
   @field('last_error') lastError!: string | null
 
-  // 具体负载（对象访问，底层字符串持久化）
-  @json('payload', identityJson) payload!: any | null
+  // ✅ 明确为 ChatEvent；底层仍是 JSON
+  @json('payload', identityJson) payload!: ChatEvent | null;
+
 
   // ---- 便捷只读属性 ----
   get shouldRetry() {
@@ -131,13 +138,13 @@ export interface MessageSnapshot {
   version?: number | null
   lamport?: number | null
   status?: MessageStatus | null
-  payload?: any | null
+  payload?: MessagePayload | null;   // ✅
   localOnly?: boolean | null
 }
 
 export interface OutboxRecord {
   id: string
-  op: string
+  op: ChatEvent['type'];             // ✅
   chatId?: string | null
   targetId?: string | null
   dedupeKey?: string | null
@@ -145,5 +152,5 @@ export interface OutboxRecord {
   queuedAt: number
   attempt?: number | null
   lastError?: string | null
-  payload?: any | null
+  payload?: ChatEvent | null;        // ✅
 }

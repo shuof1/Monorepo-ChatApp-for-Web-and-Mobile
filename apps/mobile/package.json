@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.28.2",
+    "@nozbe/watermelondb": "^0.28.0",
     "@react-native-firebase/app": "^23.0.1",
     "@react-native-firebase/auth": "^23.0.1",
     "@react-native-firebase/firestore": "^23.0.1",
@@ -20,10 +21,12 @@
     "@react-navigation/native": "^7.1.17",
     "@react-navigation/stack": "^7.4.7",
     "adapter-firestore-rn": "workspace:*",
+    "adapter-storage-wm": "workspace:*",
     "expo": "~53.0.20",
     "expo-dev-client": "~5.2.4",
     "expo-linear-gradient": "~14.1.5",
     "expo-status-bar": "~2.2.3",
+    "loro-react-native": "^1.5.4",
     "react": "19.0.0",
     "react-native": "0.79.5",
     "react-native-date-picker": "^5.0.13",
@@ -35,9 +38,8 @@
     "react-native-reanimated": "^3.17.5",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
-    "sync-engine": "workspace:*",
-    "adapter-storage-wm": "workspace:*",
-    "@nozbe/watermelondb": "^0.28.0"
+    "react-native-wasm": "^0.1.3",
+    "sync-engine": "workspace:*"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

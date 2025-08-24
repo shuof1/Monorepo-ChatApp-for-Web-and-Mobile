@@ -1,0 +1,63 @@
+diff --git a/android/CMakeLists.txt b/android/CMakeLists.txt
+index 525cfb0d52738f38babd240043aa7c02aceb4fca..b9c3f58a12265d9104434a1a95b6887433219acc 100644
+--- a/android/CMakeLists.txt
++++ b/android/CMakeLists.txt
+@@ -50,6 +50,10 @@ set_target_properties(my_rust_lib PROPERTIES IMPORTED_LOCATION ${MY_RUST_LIB})
+ find_package(ReactAndroid REQUIRED CONFIG)
+ find_library(LOGCAT log)
+ 
++if(NOT DEFINED ANDROID_STL)
++  set(ANDROID_STL c++_shared CACHE STRING "" FORCE)
++endif()
++
+ # REACTNATIVE_MERGED_SO seems to be only be set in a build.gradle.kt file,
+ # which we don't use. Thus falling back to version number sniffing.
+ if (ReactAndroid_VERSION_MINOR GREATER_EQUAL 76)
+@@ -67,6 +71,14 @@ else()
+   )
+ endif()
+ 
++# 把 Gradle 传入的 UNIFFICPP_INCLUDES 用作头文件搜索路径
++if(DEFINED UNIFFICPP_INCLUDES)
++  include_directories(${UNIFFICPP_INCLUDES})
++else()
++  # 兜底：直接指向 node_modules 路径（正斜杠）
++  include_directories(${CMAKE_SOURCE_DIR}/../../uniffi-bindgen-react-native/cpp/includes)
++endif()
++
+ find_package(fbjni REQUIRED CONFIG)
+ target_link_libraries(
+   loro-react-native
+diff --git a/android/build.gradle b/android/build.gradle
+index 3cbf39af5c0ed5fdd753116f057cf831d235e47c..2ac1c3b1e5e9665b7d2c6e21db113e61df73b136 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -48,6 +48,18 @@ def supportsNamespace() {
+   // Namespace support was added in 7.3.0
+   return (major == 7 && minor >= 3) || major >= 8
+ }
++def nodeResolve = { spec ->
++    def out = new ByteArrayOutputStream()
++    exec {
++        commandLine 'node', '-e', "console.log(require.resolve('${spec}'))"
++        standardOutput = out
++    }
++    return out.toString().trim()
++}
++def uniffiPkgJson = nodeResolve('uniffi-bindgen-react-native/package.json')
++// 关键：取父目录
++def uniffiRoot = new File(uniffiPkgJson).getParentFile()
++def uniffiIncludes = new File(uniffiRoot, 'cpp/includes')
+ 
+ android {
+   if (supportsNamespace()) {
+@@ -73,7 +85,8 @@ android {
+     }
+     externalNativeBuild {
+       cmake {
+-        arguments '-DANDROID_STL=c++_shared'
++        arguments "-DUNIFFICPP_INCLUDES=${uniffiIncludes.absolutePath.replace('\\','/')}",
++                  "-DANDROID_STL=c++_shared"
+         abiFilters (*reactNativeArchitectures())
+       }
+     }

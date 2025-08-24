@@ -16,11 +16,13 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
+
 // 显式把两个包映射到根 node_modules（或直接指向 apps/mobile/node_modules，如果已就近安装）
 config.resolver.extraNodeModules = {
   '@react-native-firebase/app': path.resolve(workspaceRoot, 'node_modules/@react-native-firebase/app'),
   '@react-native-firebase/firestore': path.resolve(workspaceRoot, 'node_modules/@react-native-firebase/firestore'),
 };
+
 // 让 Metro 能看到 monorepo 根（含 packages/**/dist 的变化）
 config.watchFolders = [workspaceRoot];
 

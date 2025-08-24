@@ -1,4 +1,8 @@
 // types.ts
+
+import { LoroText } from 'loro-crdt';
+
+
 export type Millis = number;
 
 // 逻辑时钟（Lamport-ish）。t 用 clientTime，tie 用 opId，当 t 相等时作为打平键。
@@ -22,6 +26,7 @@ export type ChatEvent =
   | (BaseEvent & {
       type: 'create';
       text: string;
+      replyTo?: string;    
     })
   | (BaseEvent & {
       type: 'edit';
@@ -29,6 +34,16 @@ export type ChatEvent =
     })
   | (BaseEvent & {
       type: 'delete';
+    })
+  | (BaseEvent & {
+      type: 'reaction';
+      emoji: string;
+      op: 'add' | 'remove';     // 表示是添加还是移除 reaction
+    })
+  | (BaseEvent & {
+      type: 'reply';
+      text: string;
+      replyTo: string;         // 被回复的消息 ID
     });
 
 export type ChatMsg = {
@@ -38,7 +53,23 @@ export type ChatMsg = {
   createdAt: Date;          // 从 create.clientTime/serverTimeMs 推导
   updatedAt?: Date;         // 最近一次 edit 的时间（同上）
   deleted?: boolean;
+  reactions?: Record<string, string[]>; // emoji → userIds
+  replyTo?: string;           // 被回复的消息ID
+  replies?: string[];         // 该消息收到的回复列表
 };
+
+
+// 在 LoroDoc 中每条消息的结构：
+export type InternalLoroChatMsg = {
+  text: LoroText;
+  authorId: string;
+  createdAt: number;
+  updatedAt?: number;
+  deleted?: boolean;
+  replyTo?: string;
+  reactions: Map<string, string[]>; // emoji -> [userId...]
+  replies: string[];                // 该消息收到的回复 messageIds
+}
 
 // —— 可选：对 reducer 的最小接口约束 —— //
 export type ChatState = { byId: Record<string, ChatMsg> };

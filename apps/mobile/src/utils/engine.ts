@@ -1,11 +1,16 @@
 // import { foldEvents } from "sync-engine";
 import { createRNPorts } from 'adapter-firestore-rn';
-import { foldEvents, type ChatEvent, type ChatMsg, type Millis } from 'sync-engine';
+import {
+  type ChatEvent, type ChatMsg, type Millis,
+} from 'sync-engine';
 import { v4 as uuid } from 'uuid';
 import {
   createLocalStorage,
   createOutbox,
 } from 'adapter-storage-wm';
+import { LoroDoc } from "loro-react-native";
+import { applyEventToLoro, getAllMessagesFromDoc } from "./loro-utils";
+
 
 export type Unsubscribe = () => void;
 
@@ -33,8 +38,8 @@ export function createChatSession(chatId: string): ChatSession {
   const local = createLocalStorage()
   const outbox = createOutbox()
 
-  let events: ChatEvent[] = [];
-  let state = new Map<string, ChatMsg>();
+  const doc = new LoroDoc();
+
   const listeners = new Set<(s: Map<string, ChatMsg>) => void>();
   let unsub: Unsubscribe | null = null;
   let started = false;
@@ -43,15 +48,20 @@ export function createChatSession(chatId: string): ChatSession {
   // 同步循环只启动一次
   let syncLoopStarted = false
 
-  const notifyFromEvents = () => {
-    state = foldEvents(events)
-    listeners.forEach(fn => fn(state))
+  const getStateFromDoc = () => {
+    return new Map(getAllMessagesFromDoc(doc).map(msg => [msg.id, msg]));
   }
+
+  const notify = () => {
+    const state = getStateFromDoc();
+    listeners.forEach((fn) => fn(state));
+  }
+
 
   // 冷启动：先用本地快照“上屏”（离线可见）
   const notifyFromLocalSnapshot = async () => {
     const msgs = await local.getMessages(chatId, 200)
-    const map = new Map<string, ChatMsg>()
+    const state = new Map<string, ChatMsg>();
     for (const m of msgs) {
       const id = (m.remoteId as any) ?? (m as any).id
       const createdAt = new Date(m.createdAt)
@@ -67,9 +77,8 @@ export function createChatSession(chatId: string): ChatSession {
         deleted: !!m.deletedAt,
         payload: m.payload ?? undefined,
       } as unknown as ChatMsg
-      map.set(id, msg)
+      state.set(id, msg);
     }
-    state = map
     listeners.forEach(fn => fn(state))
   }
 
@@ -159,10 +168,12 @@ export function createChatSession(chatId: string): ChatSession {
   }
 
 
-  const notify = () => {
-    state = foldEvents(events);
-    listeners.forEach(fn => fn(state));
-  };
+  // —— 发送事件的最小封装 —— //
+  const base = () => ({
+    clientId: ports.ids.deviceId,
+    opId: ports.ids.newId(),
+    clientTime: ports.clock.now() as Millis,
+  });
 
   const start = async () => {
     if (started) return;
@@ -173,27 +184,25 @@ export function createChatSession(chatId: string): ChatSession {
 
     // 2) 远端初次加载
     const initial = await ports.store.list(chatId);
-    events = events.concat(initial);
-    notifyFromEvents()
-
-    // --- 新增逻辑 ---
-    // 找到本地最新事件的时间戳
-    // let lastKnownTime: Millis | undefined = undefined;
-    if (events.length > 0) {
-      // 假设 events 已经按 clientTime 升序排列
-      lastKnownTime  = events[events.length - 1].clientTime;
+    for (const ev of initial) {
+      applyEventToLoro(doc, ev);
+      await applyRemoteEventToLocal(ev);
     }
+
+    if (initial.length > 0) {
+      // 假设 events 已经按 clientTime 升序排列
+      lastKnownTime = initial[initial.length - 1].clientTime;
+    }
+    notify();
     unsub = ports.store.subscribe(chatId, async (ev) => {
       if (lastKnownTime && ev.clientTime === lastKnownTime) {
-        if (events.some(e => e.opId === ev.opId)) {
-          // 忽略重复的事件
-          return;
-        }
+        // 去重：仅根据 opId 可能不够，若未来使用 Loro sync，可移除
+        return;
       }
-      events.push(ev)
-      notifyFromEvents()
-      await applyRemoteEventToLocal(ev)
-      lastKnownTime = ev.clientTime
+      applyEventToLoro(doc, ev);
+      await applyRemoteEventToLocal(ev);
+      lastKnownTime = ev.clientTime;
+      notify();
     });
     // 4) 启动 Outbox 同步
     ensureSyncLoop()
@@ -201,22 +210,19 @@ export function createChatSession(chatId: string): ChatSession {
 
   const stop = () => { unsub?.(); unsub = null; started = false; };
 
-  const base = () => ({
-    clientId: ports.ids.deviceId,
-    opId: ports.ids.newId(),
-    clientTime: ports.clock.now() as Millis,
-  });
+
 
   return {
-    getState: () => state,
-    subscribe(fn) { listeners.add(fn); fn(state); return () => listeners.delete(fn); },
+    getState: () => getStateFromDoc(),
+    subscribe(fn) { listeners.add(fn); fn(getStateFromDoc()); return () => listeners.delete(fn); },
     start,
     stop,
     async create(p) {
       const ev: ChatEvent = { type: 'create', chatId, messageId: p.messageId ?? ports.ids.newId(), text: p.text, authorId: p.authorId, ...base() };
       // 本地乐观
-      await applyRemoteEventToLocal(ev)
-      events.push(ev); notify()
+      applyEventToLoro(doc, ev);
+      await applyRemoteEventToLocal(ev);
+      notify();
 
       // 入队 outbox
       await outbox.enqueue({
@@ -230,8 +236,9 @@ export function createChatSession(chatId: string): ChatSession {
     },
     async edit(p) {
       const ev: ChatEvent = { type: 'edit', chatId, messageId: p.messageId, text: p.text, authorId: p.authorId, ...base() };
-      await applyRemoteEventToLocal(ev)
-      events.push(ev); notify()
+      applyEventToLoro(doc, ev);
+      await applyRemoteEventToLocal(ev);
+      notify();
 
       await outbox.enqueue({
         op: 'edit',
@@ -244,8 +251,9 @@ export function createChatSession(chatId: string): ChatSession {
     },
     async del(p) {
       const ev: ChatEvent = { type: 'delete', chatId, messageId: p.messageId, authorId: p.authorId, ...base() } as ChatEvent;
-      await applyRemoteEventToLocal(ev)
-      events.push(ev); notify()
+      applyEventToLoro(doc, ev);
+      await applyRemoteEventToLocal(ev);
+      notify();
 
       await outbox.enqueue({
         op: 'delete',
