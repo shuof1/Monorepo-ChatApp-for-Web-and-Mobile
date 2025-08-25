@@ -15,9 +15,10 @@ import { applyEventToLoro, getAllMessagesFromDoc } from "./loro-utils";
 
 import {
     createLocalStorage,
-    createOutbox,
+    getOutboxAdapterSingleton,
+    getOutBoxRunnerSingleton
 } from 'adapter-storage-wm';
-
+import { LoroText, LoroMap } from 'loro-crdt';
 
 /** 依赖注入：组装 ports（clock + ids + store） */
 function buildPorts() {
@@ -53,14 +54,48 @@ export interface ChatSession {
     toggleReaction(p: { chatId: string; messageId: string; emoji: string; authorId: string }): Promise<void>;
 }
 
+// ---------- Ports 单例 ----------
+let _ports: ReturnType<typeof createWebPorts> | null = null;
+export function getPortsSingleton() {
+    if (!_ports) {
+        _ports = createWebPorts({
+            db: getDb(),
+            deviceId: "web-" + uuid(),
+            newId: uuid,
+        });
+    }
+    return _ports;
+}
+
+// ---------- Runner 启动（方式一：懒启动，方式二：Hook） ----------
+let __runnerStarted = false;
+
+/** 懒启动：第一次被调用时启动 runner（幂等） */
+export function ensureOutboxRunnerOnce() {
+    if (__runnerStarted) return;
+    const ports = getPortsSingleton();
+
+    const runner = getOutBoxRunnerSingleton(async (item) => {
+        // dispatch: 只负责把队列里的事件发给后端
+        const ev = item.payload as ChatEvent;
+        if (!ev?.type) return; // 兜底
+        await ports.store.append(ev);
+    }, { batchSize: 10, idleMs: 1000, jitterMs: 300 });
+
+    runner.start();            // 幂等：多次调用也不会重复跑
+    __runnerStarted = true;
+}
+
+
 /** 为某个 chatId 创建一个会话（状态机 + 订阅） */
 export function createChatSession(chatId: string): ChatSession {
-    const ports = buildPorts();
-
+    // const ports = buildPorts();
+    const ports = getPortsSingleton();
     const local = createLocalStorage();
-    const outbox = createOutbox();
-
+    // const outbox = createOutbox();
+    const outbox = getOutboxAdapterSingleton();
     const doc = new LoroDoc();
+
 
     // let events: ChatEvent[] = [];
     // let state = new Map<string, ChatMsg>();
@@ -127,30 +162,30 @@ export function createChatSession(chatId: string): ChatSession {
     };
 
     // —— Outbox 同步循环（最小实现：定时轮询） —— //
-    const ensureSyncLoop = () => {
-        if (syncLoopStarted) return;
-        syncLoopStarted = true;
+    // const ensureSyncLoop = () => {
+    //     if (syncLoopStarted) return;
+    //     syncLoopStarted = true;
 
-        const tick = async () => {
-            try {
-                const batch = await outbox.peek(10, 5); // 取 10 条，最多重试 5 次
-                for (const item of batch) {
-                    try {
-                        const ev = item.payload as ChatEvent; // 我们 enqueue 的就是完整事件
-                        await ports.store.append(ev);         // 上行到后端
-                        await persistSnapshotById(ev.messageId);  // ✅ 单条落地（含 reactions）                   
-                        await outbox.markDone(item.id);
-                    } catch (err) {
-                        await outbox.markFailed(item.id, err);
-                    }
-                }
-            } finally {
-                setTimeout(tick, 800); // 简单轮询；后续可换网络/可见性驱动
-            }
-        };
+    //     const tick = async () => {
+    //         try {
+    //             const batch = await outbox.peek(10, 5); // 取 10 条，最多重试 5 次
+    //             for (const item of batch) {
+    //                 try {
+    //                     const ev = item.payload as ChatEvent; // 我们 enqueue 的就是完整事件
+    //                     await ports.store.append(ev);         // 上行到后端
+    //                     await persistSnapshotById(ev.messageId);  // ✅ 单条落地（含 reactions）                   
+    //                     await outbox.markDone(item.id);
+    //                 } catch (err) {
+    //                     await outbox.markFailed(item.id, err);
+    //                 }
+    //             }
+    //         } finally {
+    //             setTimeout(tick, 800); // 简单轮询；后续可换网络/可见性驱动
+    //         }
+    //     };
 
-        tick();
-    };
+    //     tick();
+    // };
 
     // —— 发送事件的最小封装 —— //
     const base = () => ({
@@ -167,32 +202,38 @@ export function createChatSession(chatId: string): ChatSession {
     const start = async () => {
         if (started) return;
         started = true;
-
+        ensureOutboxRunnerOnce();   // 确保 Outbox Runner 启动
         // 0) 先用本地快照“上屏”，离线可见
         await notifyFromLocalSnapshot();
+        await hydrateDocFromLocalSnapshot();
+        let lastServerMs = await local.getKv<number>(`cursor:serverTime:${chatId}`) ?? 0;
 
         // 1) 初次加载（带 sinceMs）
-        const initial = await ports.store.list(chatId, lastKnownTime ? { sinceMs: lastKnownTime } : undefined);
+        const initial = await ports.store.list(chatId, lastServerMs ? { sinceMs: lastServerMs } : undefined);
         for (const ev of initial) {
             applyEventToLoro(doc, ev);
             await applyRemoteEventToLocal(ev);
             markSeen(ev.opId);
-            lastKnownTime = Math.max(lastKnownTime ?? 0, ev.clientTime);
+            lastServerMs = Math.max(lastServerMs, ev.serverTimeMs ?? ev.clientTime);
         }
+        await local.setKv(`cursor:serverTime:${chatId}`, lastServerMs);
 
-        await local.setLastClientTime(chatId, lastKnownTime ?? 0);
         notify();
         // 2) 实时订阅（带 sinceMs）
         unsub = ports.store.subscribe(chatId, async (ev) => {
             if (seen.has(ev.opId)) return; // ✅ opId 去重更稳
+           
             applyEventToLoro(doc, ev);
+
             await applyRemoteEventToLocal(ev);
             markSeen(ev.opId);
-            lastKnownTime = Math.max(lastKnownTime ?? 0, ev.clientTime);
-            await local.setLastClientTime(chatId, lastKnownTime);
+            lastServerMs = Math.max(lastServerMs, ev.serverTimeMs ?? ev.clientTime);
+            await local.setKv(`cursor:serverTime:${chatId}`, lastServerMs);
             notify();
-        }, lastKnownTime ? { sinceMs: lastKnownTime } : undefined);
-        ensureSyncLoop();
+
+
+        }, lastServerMs ? { sinceMs: lastServerMs } : undefined);
+        // ensureSyncLoop();
     };
 
     const stop = () => {
@@ -302,7 +343,7 @@ export function createChatSession(chatId: string): ChatSession {
             // 含 op/emoji/authorId，避免不同操作或不同表情被错误合并
             dedupeKey: `reaction:${p.chatId}:${ev.messageId}:${p.emoji}:${p.authorId}:${ev.clientTime}`,
             lamport: ev.clientTime as number,
-            payload: ev,
+            payload: ev, // ← 存入规范化后的 emoji
         });
     }
 
@@ -318,6 +359,42 @@ export function createChatSession(chatId: string): ChatSession {
         const has = !!cur?.reactions?.[p.emoji]?.includes(p.authorId);
         await emitReaction(has ? 'remove' : 'add', p);
     };
+
+    async function hydrateDocFromLocalSnapshot() {
+        const msgs = await local.getMessages(chatId, 200);
+        const messagesMap = doc.getMap('messages');
+
+        for (const m of msgs) {
+            // 新（不要回退到本地 id）
+            const id = (m as any).remoteId;
+            if (!id) continue;
+            if (messagesMap.get(id) instanceof LoroMap) continue; // 已存在就跳过
+
+            const msg = new LoroMap();
+            // text
+            const text = new LoroText();
+            text.insert(0, m.text ?? '');
+            msg.setContainer('text', text);
+            // 基本字段
+            msg.set('authorId', m.authorId);
+            msg.set('createdAt', m.createdAt);
+            if (m.editedAt) msg.set('updatedAt', m.editedAt);
+            if (m.deletedAt) msg.set('deleted', true);
+
+            // 可选：把快照里的 reactions 也回灌（没有也不影响）
+            const payload = (m.payload ?? {}) as { reactions?: Record<string, string[]> };
+            const rx = new LoroMap();
+            for (const [emoji, users] of Object.entries(payload.reactions ?? {})) {
+                const per = new LoroMap();
+                for (const uid of users) per.set(uid, true);
+                rx.setContainer(emoji, per);
+            }
+            msg.setContainer('reactions', rx);
+
+
+            messagesMap.setContainer(id, msg);
+        }
+    }
 
     return {
         getState: () => getStateFromDoc(),

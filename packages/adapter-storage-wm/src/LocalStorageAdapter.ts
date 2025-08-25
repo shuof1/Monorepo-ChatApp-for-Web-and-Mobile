@@ -28,7 +28,7 @@ function snapshotFromChatMsg(m: ChatMsg): Omit<MessageSnapshot, 'id'> {
     version: null,
     lamport: null,
     status: null,
-    payload,
+    payload: payload,
     localOnly: null,
   }
 }
@@ -130,6 +130,7 @@ export class LocalStorageAdapter {
   async upsertFromChatMsg(chatId: string, m: ChatMsg): Promise<Message> {
     const snap = snapshotFromChatMsg(m)
     snap.chatId = chatId
+    snap.remoteId = m.id
     return this.upsertMessage(snap)
   }
 

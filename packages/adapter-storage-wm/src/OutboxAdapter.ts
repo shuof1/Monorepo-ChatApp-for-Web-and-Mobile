@@ -4,6 +4,23 @@ import { OutboxItem } from './models'
 import { TABLES } from './schema'
 import type { ChatEvent } from 'sync-engine' // ✅ type-only 导入
 
+export type OutboxDispatch = (item: OutboxItem) => Promise<void>;
+export type Runner = {
+  start(): void;
+  stop(): void;
+  readonly started: boolean;
+};
+
+export type RunnerOptions = {
+  batchSize?: number;    // 每次处理多少条
+  maxAttempt?: number;   // 超过则不再处理
+  idleMs?: number;       // 队列为空时的休眠
+  jitterMs?: number;     // 抖动，避免“齐步走”
+};
+
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+const rand = (n: number) => Math.floor(Math.random() * n);
+
 // 允许 'ack' 这类非 ChatEvent 的内部操作
 export type OutboxOp = ChatEvent['type'] | 'ack' | (string & {})
 
@@ -42,6 +59,60 @@ function sanitizeEvent(ev: ChatEvent | null | undefined): ChatEvent | null {
 
 /** 最小 Outbox 适配器（强类型 + 运行时校验） */
 export class OutboxAdapter {
+  createRunner(
+    dispatch: OutboxDispatch,
+    opts: RunnerOptions = {}
+  ): Runner {
+    const adapter = this;
+
+    const batchSize = opts.batchSize ?? 10;
+    const maxAttempt = opts.maxAttempt ?? 5;
+    const idleMs = opts.idleMs ?? 1200;
+    const jitterMs = opts.jitterMs ?? 300;
+
+    let _started = false;
+    let _stopping = false;
+
+    async function loop() {
+      while (!_stopping) {
+        const items = await adapter.peek(batchSize, maxAttempt);
+        if (items.length === 0) {
+          await sleep(idleMs + rand(jitterMs));
+          continue;
+        }
+
+        // 串行处理，最稳妥；需要提速时可做小并发（注意幂等）
+        for (const it of items) {
+          try {
+            await dispatch(it);          // 交给上层真正“发送”
+            await adapter.markDone(it.id);
+          } catch (e) {
+            await adapter.markFailed(it.id, e);
+          }
+          if (_stopping) break;
+        }
+        // 主动让出事件循环，避免长时间占用
+        await Promise.resolve();
+      }
+    }
+
+    return {
+      start() {
+        if (_started) return;
+        _started = true;
+        _stopping = false;
+        // fire and forget
+        loop().catch(err => console.error("[OutboxRunner] loop error:", err));
+      },
+      stop() {
+        _stopping = true;
+        _started = false;
+      },
+      get started() {
+        return _started && !_stopping;
+      }
+    };
+  }
   /** 入队；支持通过 dedupeKey 幂等去重（若找到同 key 项则直接返回该项） */
   async enqueue(input: EnqueueInput): Promise<OutboxItem> {
     const db = getDB()
@@ -115,22 +186,32 @@ export class OutboxAdapter {
   async markDone(id: string): Promise<void> {
     const db = getDB()
     await db.write(async () => {
-      const item = await db.get<OutboxItem>(TABLES.outbox).find(id)
-      await item.markAsDeleted()
-      await item.destroyPermanently()
-    })
+      const col = db.get(TABLES.outbox);
+      try {
+        const item = await col.find(id);
+        await item.markAsDeleted();           // 或 destroyPermanently()
+      } catch {
+        // 已被处理掉，忽略
+        return;
+      }
+    });
   }
 
   /** 标记失败：记录错误并 attempt+1 */
   async markFailed(id: string, error: unknown): Promise<void> {
     const db = getDB()
     await db.write(async () => {
-      const item = await db.get<OutboxItem>(TABLES.outbox).find(id)
-      const nextAttempt = (item.attempt ?? 0) + 1
+      const col = db.get<OutboxItem>(TABLES.outbox)
+      let item;
+      try {
+        item = await col.find(id);
+      } catch {
+        console.warn(`[Outbox] markFailed: item not found, id=${id}`);
+        return;
+      }
       await item.update(rec => {
-        rec.attempt = nextAttempt
-        rec.lastError = typeof error === 'string' ? error : JSON.stringify(error ?? '')
-      })
+        rec.attempt = (rec.attempt ?? 0) + 1;
+      });
     })
   }
 

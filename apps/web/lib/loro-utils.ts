@@ -53,28 +53,25 @@ export function applyEventToLoro(doc: LoroDoc, ev: ChatEvent): void {
     }
 
     case "reaction": {
-      const msg = messages.get(ev.messageId);
-      if (!(msg instanceof LoroMap)) break;
+      // 1) 防御：空 emoji 直接跳过
+      const emoji = (ev.emoji ?? '').trim();
+      if (!emoji) { console.warn('[reaction] skip invalid emoji', ev); break; }
 
-      let reactions = msg.get("reactions") as LoroMap;
-      if (!reactions) {
-        reactions = new LoroMap();
-        msg.setContainer("reactions", reactions);
-      }
 
-      let perUser = reactions.get(ev.emoji) as LoroMap;
-      if (!perUser) {
-        perUser = new LoroMap();
-        reactions.setContainer(ev.emoji, perUser);
-      }
+
+      const msg = messages.get(ev.messageId) as LoroMap;
+      if (!(msg instanceof LoroMap)) { console.warn('[reaction] skip invalid msg', ev); break; }
+
+
+      const reactions = ensureContainer(msg, "reactions");
+      const perUser = ensureContainer(reactions, emoji);
 
       if (ev.op === "add") {
-        // 并发：不同用户写不同 key → 天然无冲突
-        // 同一用户 add vs remove 并发 → 交给 Loro 的 LWW
         perUser.set(ev.authorId, true);
       } else {
-        // remove：删除这个键；与并发 add 的裁决也交由 Loro 的 LWW
         perUser.delete(ev.authorId);
+        // 可选：清理空容器
+        // if ((perUser.size ?? 0) === 0) reactions.delete(emoji);
       }
       break;
     }
@@ -87,6 +84,16 @@ export function applyEventToLoro(doc: LoroDoc, ev: ChatEvent): void {
   }
 
 }
+
+
+
+function ensureContainer(parent: LoroMap, key: string): LoroMap {
+  const cur = parent.get(key);
+  if (cur instanceof LoroMap) return cur;
+  parent.setContainer(key, new LoroMap());
+  return parent.get(key) as LoroMap; // 关键：重新获取“活引用”
+}
+
 /** 从 doc 中提取全部消息，供 UI 使用 */
 export function getAllMessagesFromDoc(doc: LoroDoc): ChatMsg[] {
   const messages = doc.getMap("messages");
@@ -122,33 +129,17 @@ export function getAllMessagesFromDoc(doc: LoroDoc): ChatMsg[] {
 }
 
 /** 工具函数：从 LoroMap(reactions) 转换为 { emoji: userId[] } */
-function extractReactions(raw: unknown): Record<string, string[]> | undefined {
-  if (!(raw instanceof LoroMap)) return undefined;
-
-  const out: Record<string, string[]> = {};
-
-  for (const [emoji, container] of raw.entries()) {
-    // 新结构：LoroMap<userId, boolean>
-    if (container instanceof LoroMap) {
-      const users: string[] = [];
-      for (const [uid, v] of container.entries()) {
-        // 只要键存在就算“已反应”，值可忽略（boolean / any）
-        void v;
-        users.push(String(uid));
+export function extractReactions(rx: any): Record<string, string[]> {
+  const reactions: Record<string, string[]> = {};
+  if (rx instanceof LoroMap) {
+    for (const emoji of rx.keys()) {
+      const per = rx.get(emoji);
+      if (per instanceof LoroMap) {
+        const users: string[] = [];
+        for (const uid of per.keys()) users.push(String(uid));
+        if (users.length) reactions[emoji] = users;
       }
-      if (users.length) out[String(emoji)] = users;
-      continue;
     }
-
-    // 旧结构兜底：LoroList<string>
-    if (container instanceof LoroList) {
-      const users = (container.toArray() as unknown[]).map(String);
-      if (users.length) out[String(emoji)] = users;
-      continue;
-    }
-
-    // 其它未知类型忽略
   }
-
-  return Object.keys(out).length ? out : undefined;
+  return reactions;
 }

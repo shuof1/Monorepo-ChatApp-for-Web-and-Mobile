@@ -11,6 +11,8 @@ import {
   where,
   limit as qLimit,
   getDocs,
+  doc,
+  setDoc
 } from 'firebase/firestore';
 import type {
   ChatEvent,
@@ -41,7 +43,7 @@ function toChatEvent(raw: any): ChatEvent {
     clientId: raw.clientId as string,
     opId: raw.opId as string,
     clientTime: raw.clientTime as number,
-    serverTimeMs,
+    serverTimeMs: serverTimeMs,
   } as const;
 
   switch (raw.type) {
@@ -55,13 +57,13 @@ function toChatEvent(raw: any): ChatEvent {
       const emoji = typeof raw.emoji === 'string' ? raw.emoji.trim() : '';
       const op = raw.op === 'remove' ? 'remove' : 'add';
       if (!emoji) return base as ChatEvent; // 跳过坏数据，避免崩溃
-      return { emoji, op, ...base } as ChatEvent;
+      return { emoji:emoji, op:op, ...base } as ChatEvent;
     }
     case 'reply': {
       const replyTo = typeof raw.replyTo === 'string' ? raw.replyTo : '';
       const text = String(raw.text ?? '');
       if (!replyTo) return base as ChatEvent; // 可按需放宽
-      return { replyTo, text, ...base } as ChatEvent;
+      return { replyTo:replyTo, text:text, ...base } as ChatEvent;
     }
     default:
       return base as ChatEvent; // 跳过坏数据，避免崩溃
@@ -73,6 +75,7 @@ export function createWebEventStore(db: Firestore): EventStorePort {
   return {
     /** 追加事件；写库时带上 serverTimestamp() */
     async append(ev: ChatEvent): Promise<void> {
+      const ref = doc(eventsCol(db, ev.chatId), ev.opId); // ✅ 用 opId 作为 docId
       const docData: Record<string, any> = {
         type: ev.type,
         chatId: ev.chatId,
@@ -97,14 +100,15 @@ export function createWebEventStore(db: Firestore): EventStorePort {
           docData.replyTo = ev.replyTo;// ✅ 关键
           break;
       }
-      await addDoc(eventsCol(db, ev.chatId), docData);
+      // await addDoc(eventsCol(db, ev.chatId), docData);
+      await setDoc(ref,docData,{ merge: false });
     },
 
     /** 初始化加载（在线最小实现：按 clientTime 过滤与排序） */
     async list(chatId: string, opts?: { sinceMs?: Millis; limit?: number }) {
-      let q = query(eventsCol(db, chatId), orderBy('clientTime', 'asc'));
+      let q = query(eventsCol(db, chatId), orderBy('serverTime', 'asc'));
       if (opts?.sinceMs != null) {
-        q = query(q, where('clientTime', '>=', opts.sinceMs));
+        q = query(q, where('serverTime', '>', Timestamp.fromMillis(opts.sinceMs)));
       }
       if (opts?.limit != null) {
         q = query(q, qLimit(opts.limit));
@@ -116,23 +120,23 @@ export function createWebEventStore(db: Firestore): EventStorePort {
         .filter((x): x is ChatEvent => !!x);
     },
 
-    /** 实时订阅增量事件（按 clientTime 升序） */
+    /** 实时订阅增量事件（按 serverTime 升序） */
     subscribe(chatId: string, onEvent: (ev: ChatEvent) => void, opts?: { sinceMs?: Millis }) {
       // --- 修改点：将 query 的构建移到这里 ---
-      let qy = query(eventsCol(db, chatId), orderBy('clientTime', 'asc'));
+      let qy = query(eventsCol(db, chatId), orderBy('serverTime', 'asc'));
 
       // 如果传入了 sinceMs，只查询比它更新的事件
       if (opts?.sinceMs != null) {
         // 使用 "greater than" (>) 而不是 "greater than or equal to" (>=)
         // 来避免把最后一条消息重复加载一次
-        qy = query(qy, where('clientTime', '>', opts.sinceMs));
+        qy = query(qy, where('serverTime', '>',Timestamp.fromMillis(opts.sinceMs)));
       }
       const unsub = onSnapshot(qy, snap => {
         // 仅处理新增（在线模式最小实现）
         snap.docChanges().forEach(ch => {
-          if (ch.type === 'added') {
+          // if (ch.type === 'added') {
             onEvent(toChatEvent(ch.doc.data()));
-          }
+          // }
         });
       });
       return unsub;
