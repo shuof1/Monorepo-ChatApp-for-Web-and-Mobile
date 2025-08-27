@@ -1,0 +1,41 @@
+{
+  "name": "adapter-firestore-admin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Firestore Admin adapter implementing SoR EventStorePort & MembershipRepository.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsup src/index.ts --format cjs,esm --out-dir dist --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "sor-core": "workspace:*",
+    "firebase-admin": "^13.4.0"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "packageManager": "pnpm@10.14.0"
+}

@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getFirebaseAuth } from '../../../lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from 'firebase/auth';
-import { getDb } from '../../../lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+
 
 export default function LoginPage() {
     const router = useRouter();
@@ -14,7 +13,7 @@ export default function LoginPage() {
     const [confirm, setConfirm] = useState<ConfirmationResult | null>(null);
     const [sending, setSending] = useState(false);
     const [verifying, setVerifying] = useState(false);
-    const db = getDb(); // 获取 Firestore 实例
+
     // 存放 reCAPTCHA 容器
     const recaptchaDivRef = useRef<HTMLDivElement | null>(null);
     // 防止重复初始化
@@ -66,8 +65,25 @@ export default function LoginPage() {
         setVerifying(true);
         try {
             const cred = await confirm.confirm(code);
-            const snap = await getDoc(doc(db, 'users', cred.user.uid));
-            const hasProfile = snap.exists() && typeof (snap.data()?.name) === 'string' && snap.data()!.name.length > 0;
+            const idToken = await cred.user.getIdToken();
+            const resp = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken }),
+            });
+            if (!resp.ok) {
+                const j = await resp.json().catch(() => ({}));
+                throw new Error(j?.error || 'Login API failed');
+            }
+
+            const meRes=await fetch('api/user/me',{credentials:'include',cache:'no-store'});
+            if(!meRes.ok){
+                const j = await meRes.json().catch(() => ({}));
+                throw new Error(j?.error || 'Fetch user info failed');
+            }
+            const me=await meRes.json();
+            const hasProfile= !!me?.user?.profile?.displayName;
+            // const hasProfile = snap.exists() && typeof (snap.data()?.name) === 'string' && snap.data()!.name.length > 0;
             router.replace(hasProfile ? '/dashboard' : `/detail?uid=${cred.user.uid}`);
         } catch (e: any) {
             console.error(e);

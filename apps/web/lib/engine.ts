@@ -19,16 +19,7 @@ import {
     getOutBoxRunnerSingleton
 } from 'adapter-storage-wm';
 import { LoroText, LoroMap } from 'loro-crdt';
-
-/** 依赖注入：组装 ports（clock + ids + store） */
-function buildPorts() {
-    const db = getDb();
-    return createWebPorts({
-        db,
-        deviceId: "web-" + uuid(),
-        newId: uuid,
-    });
-}
+import { getMessageFromDoc } from '../utils/loro-readers';
 
 export type Unsubscribe = () => void;
 
@@ -103,11 +94,6 @@ export function createChatSession(chatId: string): ChatSession {
     let unsub: Unsubscribe | null = null;
     let started = false;
 
-    // 用于去重
-    let lastKnownTime: Millis | undefined = undefined;
-
-    // 简化的同步循环开关
-    let syncLoopStarted = false;
 
     const getStateFromDoc = () => {
         return new Map(getAllMessagesFromDoc(doc).map(msg => [msg.id, msg]));
@@ -115,7 +101,7 @@ export function createChatSession(chatId: string): ChatSession {
 
     async function persistSnapshotById(mid: string) {
         // 只算一条，避免每次都全量 getAll
-        const one = getAllMessagesFromDoc(doc).find(m => m.id === mid);
+        const one = getMessageFromDoc(doc, mid);
         if (one) {
             await local.upsertFromChatMsg(chatId, one); // ← 上一步你在 LocalStorageAdapter 里已实现
         }

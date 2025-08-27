@@ -1,10 +1,13 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/adapter-http-web" },
+    { "path": "packages/adapter-firestore-admin" },
+    { "path": "packages/sor-core" },
     { "path": "packages/sync-engine" },
     { "path": "packages/adapter-firestore-web" },
     { "path": "packages/adapter-firestore-rn" }, 
-    { "path": "packages/adapter-firestore-wm" }, 
+    { "path": "packages/adapter-storage-wm" }, 
     { "path": "apps/web" },
     { "path": "apps/mobile" }
   ]

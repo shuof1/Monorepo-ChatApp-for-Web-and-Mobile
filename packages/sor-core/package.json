@@ -1,0 +1,38 @@
+{
+  "name": "sor-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Source-of-Record core: schema + ACL + SoR facade (runtime-agnostic).",
+  "license": "MIT",
+  "sideEffects": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+    
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "clean": "rimraf dist",
+    "build:js": "tsup src/index.ts src/schema.ts src/sor.ts src/acl.ts --format cjs,esm --out-dir dist --clean",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsup src/index.ts --format cjs,esm --out-dir dist --watch",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "packageManager": "pnpm@10.14.0"
+}

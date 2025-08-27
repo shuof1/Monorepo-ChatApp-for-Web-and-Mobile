@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { getFirebaseAuth } from '../../../lib/firebase';          // 你之前写的 getter
-import { getDb } from '../../../lib/firebase'; 
+
 import { signOut } from 'firebase/auth';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+
 
 // 简单的类型
 type UserRow = { id: string; name?: string };
@@ -15,15 +15,17 @@ export default function DashboardPage() {
   const router = useRouter();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [userName, setUserName] = useState<string>('');
-  const db= getDb(); // 获取 Firestore 实例
+  const [loading, setLoading] = useState(true);
+
 
   // 拉所有用户列表
   useEffect(() => {
     (async () => {
       try {
-        const snap = await getDocs(collection(db, 'users'));
-        const list = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as UserRow[];
-        setUsers(list);
+        const res = await fetch('/api/users', { credentials: 'include', cache: 'no-store' });
+        if (!res.ok) throw new Error('users failed');
+        const data = await res.json();
+        setUsers(data.users as UserRow[]);
       } catch (e) {
         console.error('error fetching users', e);
         alert('Error fetching users');
@@ -35,17 +37,25 @@ export default function DashboardPage() {
   useEffect(() => {
     (async () => {
       try {
-        const auth = getFirebaseAuth();
-        const u = auth?.currentUser;
-        if (!u) return;
-        const me = await getDoc(doc(db, 'users', u.uid));
-        setUserName((me.data() as any)?.name ?? '');
+        const res = await fetch('/api/user/me', { credentials: 'include', cache: 'no-store' });
+        if (!res.ok) {
+          router.replace('/login');
+          return;
+        }
+        const data = await res.json();
+        const display =
+          data?.user?.profile?.displayName ??
+          data?.user?.profile?.name ??
+          data?.user?.email ??
+          '';
+
+        setUserName(display || '');
       } catch (e) {
-        console.error("error fetching user's name", e);
-        alert("Error fetching user's name");
+        console.error('me failed', e);
+        router.replace('/login');
       }
     })();
-  }, []);
+  }, [router]);
 
   const navigateToChat = (userId: string, name?: string) => {
     router.push(`/chat/${userId}?name=${encodeURIComponent(name ?? '')}`);
@@ -53,6 +63,8 @@ export default function DashboardPage() {
 
   const handleLogout = async () => {
     try {
+      // 1) 清服务端 Session Cookie
+      await fetch('/api/logout', { method: 'POST', credentials: 'include' });
       const auth = getFirebaseAuth();
       if (!auth) return;
       await signOut(auth);
@@ -74,7 +86,7 @@ export default function DashboardPage() {
       >
         <h1 style={{ margin: '10px', fontSize: 32, fontWeight: 700 }}>Home</h1>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 24, margin: 10 }}>Welcome, {userName || '...' }!</div>
+          <div style={{ fontSize: 24, margin: 10 }}>Welcome, {userName || '...'}!</div>
           <button
             onClick={handleLogout}
             style={{ margin: 10, fontSize: 20, color: '#43A047', fontWeight: 700, background: 'transparent', border: 'none', cursor: 'pointer' }}

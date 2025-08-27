@@ -1,0 +1,37 @@
+{
+  "name": "adapter-http-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HTTP adapter for exposing @repo/sor-core over REST (framework-agnostic handlers).",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+    
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "clean": "rimraf dist",
+
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsup src/index.ts --format cjs,esm --out-dir dist --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "sor-core": "workspace:*"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  },
+  "packageManager": "pnpm@10.14.0"
+}

@@ -3,12 +3,10 @@
 
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { doc, setDoc } from "firebase/firestore";
-import { getDb } from '../../../lib/firebase'; // adjust the import path to your project
+
 
 type PageProps = {
   params?: { uid?: string };
-  searchParams?: { uid?: string };
 };
 
 export default function Page(props: PageProps) {
@@ -54,17 +52,17 @@ export default function Page(props: PageProps) {
 
     try {
       setSaving(true);
-      const db = getDb();
-      await setDoc(
-        doc(db, "users", uid),
-        {
-          name: name.trim(),
-          dob, // already yyyy-mm-dd
-          gender,
-          displayName: name.trim(),
-        },
-        { merge: true }
-      );
+      const res = await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: name.trim(), dob, gender }),
+      })
+      const data= await res.json().catch(() => ({}));
+      if (!res.ok||!data?.ok) {
+        throw new Error(data?.error || 'Failed to save profile');
+      }
+      
       router.push("/dashboard");
     } catch (err) {
       console.error(err);
