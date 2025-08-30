@@ -25,12 +25,14 @@ export async function setSessionCookie(idToken: string) {
   const cookieStr = serialize(SESSION_COOKIE_NAME, sessionCookie, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
+    sameSite: 'lax',
     path: "/",
     maxAge: expiresIn / 1000,
   });
 
     (await cookies()).set(SESSION_COOKIE_NAME, sessionCookie, {
     httpOnly: true,
+    sameSite: 'lax',
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: expiresIn / 1000,

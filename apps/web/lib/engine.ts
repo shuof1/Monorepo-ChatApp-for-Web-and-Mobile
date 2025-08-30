@@ -4,7 +4,7 @@
 // import { getFirestore } from "firebase/firestore";
 import { getDb } from "./firebase";
 import { v4 as uuid } from "uuid";
-import { createWebPorts } from "adapter-firestore-web";
+// import { createWebPorts } from "adapter-firestore-web";
 import {
     type ChatEvent,
     type ChatMsg,
@@ -20,6 +20,74 @@ import {
 } from 'adapter-storage-wm';
 import { LoroText, LoroMap } from 'loro-crdt';
 import { getMessageFromDoc } from '../utils/loro-readers';
+
+const deviceId = "web-" + uuid();
+const newId = uuid;
+const now = () => Date.now() as Millis;
+const API_BASE = "/api/events";
+
+// 列表：GET /api/events?chatId&sinceMs&limit
+async function apiList(chatId: string, opts?: { sinceMs?: Millis; limit?: number }): Promise<ChatEvent[]> {
+    const url = new URL(API_BASE, location.origin);
+    url.searchParams.set("chatId", chatId);
+    if (opts?.sinceMs != null) url.searchParams.set("sinceMs", String(opts.sinceMs));
+    if (opts?.limit != null) url.searchParams.set("limit", String(opts.limit));
+    const res = await fetch(url.toString(), { credentials: "include", cache: "no-store" });
+    if (!res.ok) throw new Error(`list ${res.status}`);
+    return (await res.json()) as ChatEvent[];
+}
+
+// 追加：POST /api/events
+async function apiAppend(ev: ChatEvent): Promise<void> {
+    await fetch(API_BASE, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ev),
+    }).then(r => { if (!r.ok) throw new Error(`append ${r.status}`); });
+}
+
+/** 订阅：可停止 + 退避 + 页面隐藏降频 */
+function apiSubscribe(
+  chatId: string,
+  onEvent: (ev: ChatEvent) => void,
+  opts?: { sinceMs?: Millis }
+) {
+  let stopped = false;
+  let cursor = opts?.sinceMs ?? 0;
+  let timer: any = null;
+  let interval = 1200;               // 动态退避
+  const MIN = 1200, MAX = 30000;
+
+  const schedule = (ms: number) => { if (!stopped) timer = setTimeout(tick, ms); };
+
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const list = await apiList(chatId, { sinceMs: cursor });
+      if (list.length > 0) {
+        for (const ev of list) {
+          onEvent(ev);
+          cursor = Math.max(cursor, (ev.serverTimeMs ?? ev.clientTime) as number);
+        }
+        interval = MIN;              // 有新事件，恢复快频率
+      } else {
+        interval = Math.min(MAX, interval * 1.6); // 无新事件，放缓
+      }
+    } catch {
+      interval = Math.min(MAX, interval * 1.6);
+    } finally {
+      if (document?.hidden) interval = Math.max(interval, 10000);
+      schedule(interval);
+    }
+  };
+
+  schedule(0);
+  return () => { stopped = true; if (timer) clearTimeout(timer); timer = null; };
+}
+
+
 
 export type Unsubscribe = () => void;
 
@@ -45,32 +113,19 @@ export interface ChatSession {
     toggleReaction(p: { chatId: string; messageId: string; emoji: string; authorId: string }): Promise<void>;
 }
 
-// ---------- Ports 单例 ----------
-let _ports: ReturnType<typeof createWebPorts> | null = null;
-export function getPortsSingleton() {
-    if (!_ports) {
-        _ports = createWebPorts({
-            db: getDb(),
-            deviceId: "web-" + uuid(),
-            newId: uuid,
-        });
-    }
-    return _ports;
-}
+
 
 // ---------- Runner 启动（方式一：懒启动，方式二：Hook） ----------
 let __runnerStarted = false;
-
 /** 懒启动：第一次被调用时启动 runner（幂等） */
 export function ensureOutboxRunnerOnce() {
     if (__runnerStarted) return;
-    const ports = getPortsSingleton();
 
     const runner = getOutBoxRunnerSingleton(async (item) => {
         // dispatch: 只负责把队列里的事件发给后端
         const ev = item.payload as ChatEvent;
         if (!ev?.type) return; // 兜底
-        await ports.store.append(ev);
+        await apiAppend(ev);   // ← 直接发到 /api/events
     }, { batchSize: 10, idleMs: 1000, jitterMs: 300 });
 
     runner.start();            // 幂等：多次调用也不会重复跑
@@ -81,7 +136,7 @@ export function ensureOutboxRunnerOnce() {
 /** 为某个 chatId 创建一个会话（状态机 + 订阅） */
 export function createChatSession(chatId: string): ChatSession {
     // const ports = buildPorts();
-    const ports = getPortsSingleton();
+
     const local = createLocalStorage();
     // const outbox = createOutbox();
     const outbox = getOutboxAdapterSingleton();
@@ -114,12 +169,13 @@ export function createChatSession(chatId: string): ChatSession {
 
     // —— 从本地快照快速“上屏”（离线可见） —— //
     const notifyFromLocalSnapshot = async () => {
+
         const msgs = await local.getMessages(chatId, 200); // 取最近 200 条即可
         const state = new Map<string, ChatMsg>();
         for (const m of msgs) {
             const id = (m.remoteId as any) ?? (m as any).id; // remoteId 优先，兜底本地 id
             const createdAt = new Date(m.createdAt);
-            const updatedAt = new Date(m.editedAt ?? m.createdAt);
+            const updatedAt = m.editedAt ? new Date(m.editedAt) : undefined;
             const payload = (m.payload ?? {}) as { reactions?: Record<string, string[]> };
             // 这里把本地 Message 映射成 ChatMsg（字段最小满足 UI 使用）
             const msg = {
@@ -129,7 +185,7 @@ export function createChatSession(chatId: string): ChatSession {
                 authorId: m.authorId,
                 text: m.text ?? undefined,
                 createdAt,
-                updatedAt,
+                ...(updatedAt && updatedAt.getTime() > createdAt.getTime() ? { updatedAt } : {}),
                 deleted: !!m.deletedAt,
                 payload: m.payload ?? undefined,
                 reactions: payload.reactions,  // ✅ 关键
@@ -147,37 +203,12 @@ export function createChatSession(chatId: string): ChatSession {
         await persistSnapshotById(ev.messageId);
     };
 
-    // —— Outbox 同步循环（最小实现：定时轮询） —— //
-    // const ensureSyncLoop = () => {
-    //     if (syncLoopStarted) return;
-    //     syncLoopStarted = true;
-
-    //     const tick = async () => {
-    //         try {
-    //             const batch = await outbox.peek(10, 5); // 取 10 条，最多重试 5 次
-    //             for (const item of batch) {
-    //                 try {
-    //                     const ev = item.payload as ChatEvent; // 我们 enqueue 的就是完整事件
-    //                     await ports.store.append(ev);         // 上行到后端
-    //                     await persistSnapshotById(ev.messageId);  // ✅ 单条落地（含 reactions）                   
-    //                     await outbox.markDone(item.id);
-    //                 } catch (err) {
-    //                     await outbox.markFailed(item.id, err);
-    //                 }
-    //             }
-    //         } finally {
-    //             setTimeout(tick, 800); // 简单轮询；后续可换网络/可见性驱动
-    //         }
-    //     };
-
-    //     tick();
-    // };
 
     // —— 发送事件的最小封装 —— //
     const base = () => ({
-        clientId: ports.ids.deviceId,
-        opId: ports.ids.newId(),
-        clientTime: ports.clock.now() as Millis,
+        clientId: deviceId,
+        opId: newId(),
+        clientTime: now(),
     });
 
     // 加一个小型 LRU，避免偶发重复回放（相同 clientTime 的情况）
@@ -195,7 +226,7 @@ export function createChatSession(chatId: string): ChatSession {
         let lastServerMs = await local.getKv<number>(`cursor:serverTime:${chatId}`) ?? 0;
 
         // 1) 初次加载（带 sinceMs）
-        const initial = await ports.store.list(chatId, lastServerMs ? { sinceMs: lastServerMs } : undefined);
+        const initial = await apiList(chatId, lastServerMs ? { sinceMs: lastServerMs } : undefined);
         for (const ev of initial) {
             applyEventToLoro(doc, ev);
             await applyRemoteEventToLocal(ev);
@@ -206,9 +237,9 @@ export function createChatSession(chatId: string): ChatSession {
 
         notify();
         // 2) 实时订阅（带 sinceMs）
-        unsub = ports.store.subscribe(chatId, async (ev) => {
+        unsub = apiSubscribe(chatId, async (ev) => {
             if (seen.has(ev.opId)) return; // ✅ opId 去重更稳
-           
+
             applyEventToLoro(doc, ev);
 
             await applyRemoteEventToLocal(ev);
@@ -234,7 +265,7 @@ export function createChatSession(chatId: string): ChatSession {
         const ev: ChatEvent = {
             type: "create",
             chatId: p.chatId,
-            messageId: p.messageId ?? ports.ids.newId(),
+            messageId: p.messageId ?? newId(),
             text: p.text,
             authorId: p.authorId,
             ...base(),
@@ -364,7 +395,9 @@ export function createChatSession(chatId: string): ChatSession {
             // 基本字段
             msg.set('authorId', m.authorId);
             msg.set('createdAt', m.createdAt);
-            if (m.editedAt) msg.set('updatedAt', m.editedAt);
+            if (m.editedAt && new Date(m.editedAt).getTime() > new Date(m.createdAt).getTime()) {
+                msg.set('updatedAt', m.editedAt);
+            }
             if (m.deletedAt) msg.set('deleted', true);
 
             // 可选：把快照里的 reactions 也回灌（没有也不影响）

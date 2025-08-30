@@ -1,7 +1,7 @@
 // lib/server/firebaseAdmin.ts
 import { initializeApp, cert, getApps, type App } from 'firebase-admin/app';
 import { getAuth, type Auth } from 'firebase-admin/auth';
-
+import { getFirestore, type Firestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 type SA = {
   project_id?: string;
   client_email?: string;
@@ -35,3 +35,15 @@ function init(): App {
 export function adminAuth(): Auth {
   return getAuth(init());
 }
+
+// ✅ 新增：Firestore Admin 单例
+export function getAdminDb(): Firestore {
+  return getFirestore(init());
+}
+
+/** 可选：导出时间工具（看你在路由里想用哪种） */
+// 1) 直接用“当前服务器时间”（简单，已足够）：
+export const adminNow = () => Timestamp.now();
+
+// 2) 或使用 Firestore 的“服务端提交时间”占位符（写入时用，提交后会被真实 Timestamp 替换）：
+export const adminServerTimestamp = () => FieldValue.serverTimestamp();
