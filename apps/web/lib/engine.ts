@@ -48,43 +48,94 @@ async function apiAppend(ev: ChatEvent): Promise<void> {
     }).then(r => { if (!r.ok) throw new Error(`append ${r.status}`); });
 }
 
-/** 订阅：可停止 + 退避 + 页面隐藏降频 */
-function apiSubscribe(
-  chatId: string,
-  onEvent: (ev: ChatEvent) => void,
-  opts?: { sinceMs?: Millis }
-) {
-  let stopped = false;
-  let cursor = opts?.sinceMs ?? 0;
-  let timer: any = null;
-  let interval = 1200;               // 动态退避
-  const MIN = 1200, MAX = 30000;
-
-  const schedule = (ms: number) => { if (!stopped) timer = setTimeout(tick, ms); };
-
-  const tick = async () => {
-    if (stopped) return;
+async function apiAppendStrict(ev: ChatEvent): Promise<void> {
     try {
-      const list = await apiList(chatId, { sinceMs: cursor });
-      if (list.length > 0) {
-        for (const ev of list) {
-          onEvent(ev);
-          cursor = Math.max(cursor, (ev.serverTimeMs ?? ev.clientTime) as number);
+        const res = await fetch("/api/events", {
+            method: "POST",
+            credentials: "include",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(ev),
+        });
+        if (!res.ok) {
+            const txt = await res.text().catch(() => "");
+            console.warn("[Outbox] POST fail", res.status, txt);
+            if (res.status >= 500) throw new Error(`retryable ${res.status}`);
+            // 401/403 这类：暂停等待登录（仍抛错，runner 会保留队列）
+            throw new Error(`fatal ${res.status}`);
         }
-        interval = MIN;              // 有新事件，恢复快频率
-      } else {
-        interval = Math.min(MAX, interval * 1.6); // 无新事件，放缓
-      }
-    } catch {
-      interval = Math.min(MAX, interval * 1.6);
-    } finally {
-      if (document?.hidden) interval = Math.max(interval, 10000);
-      schedule(interval);
+    } catch (e) {
+        console.warn("[Outbox] network error", String(e));
+        throw e; // 一定要抛
     }
-  };
+}
 
-  schedule(0);
-  return () => { stopped = true; if (timer) clearTimeout(timer); timer = null; };
+function apiSubscribe(
+    chatId: string,
+    onEvent: (ev: ChatEvent) => void,
+    opts?: { sinceMs?: Millis }
+) {
+    const qp = new URLSearchParams({ chatId });
+    if (opts?.sinceMs != null) qp.set("sinceMs", String(opts.sinceMs));
+
+    let closed = false;
+    let es: EventSource | null = null;
+    let pollUnsub: (() => void) | null = null;
+
+    // 优先 SSE
+    if (typeof window !== "undefined" && "EventSource" in window) {
+        es = new EventSource(`/api/events/stream?${qp.toString()}`, { withCredentials: true } as any);
+        es.onmessage = (e) => { if (!closed && e.data) onEvent(JSON.parse(e.data)); };
+        es.onerror = () => {
+            // 某些代理/本地环境不支持 SSE 时切回轮询
+            if (!closed && !pollUnsub) {
+                es?.close?.();
+                pollUnsub = apiSubscribePolling(chatId, onEvent, opts);
+            }
+        };
+        return () => { closed = true; es?.close?.(); pollUnsub?.(); };
+    }
+
+    // 不支持 SSE 的环境：直接轮询
+    return apiSubscribePolling(chatId, onEvent, opts);
+
+    // 轮询兜底（含退避 + 页面隐藏降频 + 可停止）
+    function apiSubscribePolling(
+        chatId: string,
+        onEvent: (ev: ChatEvent) => void,
+        opts?: { sinceMs?: Millis }
+    ) {
+        let stopped = false;
+        let cursor = opts?.sinceMs ?? 0;
+        let t: any = null;
+        let interval = 1200; const MIN = 1200, MAX = 30000;
+
+        const schedule = (ms: number) => { if (!stopped) t = setTimeout(tick, ms); };
+
+        const tick = async () => {
+            if (stopped) return;
+            try {
+                const arr = await apiList(chatId, { sinceMs: cursor });
+                if (arr.length > 0) {
+                    for (const ev of arr) {
+                        onEvent(ev);
+                        cursor = Math.max(cursor, (ev.serverTimeMs ?? ev.clientTime) as number);
+                    }
+                    interval = MIN;
+                } else {
+                    interval = Math.min(MAX, interval * 1.6);
+                }
+            } catch {
+                interval = Math.min(MAX, interval * 1.6);
+            } finally {
+                if (document?.hidden) interval = Math.max(interval, 10000);
+                schedule(interval);
+            }
+        };
+
+        schedule(0);
+        return () => { stopped = true; if (t) clearTimeout(t); t = null; };
+    }
 }
 
 
@@ -114,23 +165,65 @@ export interface ChatSession {
 }
 
 
-
-// ---------- Runner 启动（方式一：懒启动，方式二：Hook） ----------
-let __runnerStarted = false;
-/** 懒启动：第一次被调用时启动 runner（幂等） */
-export function ensureOutboxRunnerOnce() {
-    if (__runnerStarted) return;
-
-    const runner = getOutBoxRunnerSingleton(async (item) => {
-        // dispatch: 只负责把队列里的事件发给后端
-        const ev = item.payload as ChatEvent;
-        if (!ev?.type) return; // 兜底
-        await apiAppend(ev);   // ← 直接发到 /api/events
-    }, { batchSize: 10, idleMs: 1000, jitterMs: 300 });
-
-    runner.start();            // 幂等：多次调用也不会重复跑
-    __runnerStarted = true;
+let __runner: ReturnType<typeof getOutBoxRunnerSingleton> | null = null;
+function waitUntilOnline(): Promise<void> {
+    if (typeof window === 'undefined' || navigator.onLine) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+        const on = () => { window.removeEventListener('online', on); resolve(); };
+        window.addEventListener('online', on, { once: true });
+    });
 }
+export function ensureOutboxRunnerOnce() {
+    const g = globalThis as any;
+    if (g.__wm_runner) return;
+
+    console.log('[Runner] init creating singleton…');
+
+    __runner = getOutBoxRunnerSingleton(
+        async (item) => {
+            const ev = item.payload as ChatEvent;
+            if (!ev?.type) { console.warn('[Outbox] skip empty payload item'); return; }
+
+            console.log('[Outbox] dispatch begin', { opId: ev.opId, type: ev.type, online: navigator.onLine });
+
+            // ❌ 不要 throw offline；✅ 改为挂起直到恢复网络
+            if (!navigator.onLine) {
+                console.warn('[Outbox] offline, suspend until online', { opId: ev.opId, type: ev.type });
+                await waitUntilOnline();
+                console.log('[Outbox] resumed (online)', { opId: ev.opId, type: ev.type });
+            }
+
+            await apiAppendStrict(ev);                 // 成功/失败里都有日志
+            console.log('[Outbox] dispatch success', { opId: ev.opId, type: ev.type });
+        },
+        { batchSize: 10, idleMs: 1000, jitterMs: 300 }
+    );
+
+    g.__wm_runner = __runner;
+    console.log('[Runner] start() …');
+    __runner.start?.();
+}
+
+// 统一唤醒
+function kickOutbox() {
+    if (!__runner) {
+        console.warn('[Runner] kick ignored: not initialized yet');
+        return;
+    }
+    console.log('[Runner] kick/start');
+    __runner.start?.();   // 如果库里有 kick() 就用 kick()
+}
+// 在 start() 里，只注册一次监听（放到 ensureOutboxRunnerOnce 后）
+let __onlineBound = false;
+function bindOnlineWakeOnce() {
+    if (__onlineBound) return;
+    __onlineBound = true;
+    window.addEventListener('online', kickOutbox);
+    window.addEventListener('visibilitychange', () => {
+        if (!document.hidden) kickOutbox();
+    });
+}
+
 
 
 /** 为某个 chatId 创建一个会话（状态机 + 订阅） */
@@ -220,6 +313,7 @@ export function createChatSession(chatId: string): ChatSession {
         if (started) return;
         started = true;
         ensureOutboxRunnerOnce();   // 确保 Outbox Runner 启动
+        bindOnlineWakeOnce();
         // 0) 先用本地快照“上屏”，离线可见
         await notifyFromLocalSnapshot();
         await hydrateDocFromLocalSnapshot();
@@ -284,6 +378,8 @@ export function createChatSession(chatId: string): ChatSession {
             lamport: ev.clientTime as number,
             payload: ev, // 直接放完整事件，syncLoop 取出 append
         });
+        console.log('[Outbox] enqueued', { type: 'create', opId: ev.opId, msgId: ev.messageId, online: navigator.onLine });
+        kickOutbox();
     };
 
     const edit = async (p: { chatId: string; messageId: string; text: string; authorId: string }) => {
@@ -307,6 +403,8 @@ export function createChatSession(chatId: string): ChatSession {
             lamport: ev.clientTime as number,
             payload: ev,
         });
+        console.log('[Outbox] enqueued', { type: 'create', opId: ev.opId, msgId: ev.messageId, online: navigator.onLine });
+        kickOutbox();
     };
 
     const del = async (p: { chatId: string; messageId: string; authorId: string }) => {
@@ -329,6 +427,8 @@ export function createChatSession(chatId: string): ChatSession {
             lamport: ev.clientTime as number,
             payload: ev,
         });
+        console.log('[Outbox] enqueued', { type: 'create', opId: ev.opId, msgId: ev.messageId, online: navigator.onLine });
+        kickOutbox();
     };
 
     async function emitReaction(
@@ -362,6 +462,8 @@ export function createChatSession(chatId: string): ChatSession {
             lamport: ev.clientTime as number,
             payload: ev, // ← 存入规范化后的 emoji
         });
+        console.log('[Outbox] enqueued', { type: 'create', opId: ev.opId, msgId: ev.messageId, online: navigator.onLine });
+        kickOutbox();
     }
 
     const addReaction = (p: { chatId: string; messageId: string; emoji: string; authorId: string }) =>
