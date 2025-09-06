@@ -55,32 +55,71 @@ export async function GET(req: NextRequest) {
   if (limit) q = q.limit(Number(limit));
 
   const snap = await q.get();
-  const out = snap.docs.map(d => toChatEvent(d.data())).filter(Boolean);
+  const out = snap.docs.map(doc => {
+    const d = doc.data();
+    if(d.v === 1 && d.header?.type) return { header: d.header, body: d.body ?? null, sig: d.sig ?? null };
+    else return toChatEvent(d.data())}).filter(Boolean);
 
-  return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json(out);
 }
 
 // POST /api/events
 export async function POST(req: NextRequest) {
-  const body = await req.json(); // 不做 ACL 校验，直接透传
+  const json = await req.json();
   const db = getAdminDb();
 
-  const docData: Record<string, any> = {
-    type: body.type,
-    chatId: String(body.chatId),
-    messageId: String(body.messageId),
-    authorId: String(body.authorId ?? ""), // 如果你希望以后由服务端强制覆盖，这里可替换为登录用户
-    clientId: String(body.clientId),
-    opId: String(body.opId),
-    clientTime: Number(body.clientTime),
-    serverTime: Timestamp.now(), // 统一由服务端写入排序时间
-  };
+  // v1: { header, body, sig }
+  const h = json?.header;
+  const isV1 = h?.v === 1 && typeof h?.type === "string";
 
-  if (body.type === "create" || body.type === "edit") docData.text = String(body.text ?? "");
-  if (body.type === "reaction") { docData.emoji = String((body.emoji ?? "").trim()); docData.op = body.op === "remove" ? "remove" : "add"; }
-  if (body.type === "reply")   { docData.text = String(body.text ?? ""); docData.replyTo = String(body.replyTo ?? ""); }
+  let docData: Record<string, any>;
 
-  const ref = eventsCol(db, String(body.chatId)).doc(String(body.opId)); // 用 opId 作为 docId（幂等）
+  if (isV1) {
+    // 仅用 client 控制字段；serverTime 仍由服务端写
+    docData = {
+      v: 1,
+      type: String(h.type),
+      chatId: String(h.chatId),
+      messageId: String(h.messageId),
+      authorId: String(h.authorId ?? ""),
+      clientId: String(h.clientId),
+      opId: String(h.opId),
+      clientTime: Number(h.clientTime),
+      serverTime: Timestamp.now(),
+
+      // 原样保存，便于下行原封不动发回
+      header: h,
+      body: json.body ?? null,
+      sig: json.sig ?? null,
+    };
+  } else {
+    // v0: 旧扁平结构
+    docData = {
+      type: String(json.type),
+      chatId: String(json.chatId),
+      messageId: String(json.messageId),
+      authorId: String(json.authorId ?? ""),
+      clientId: String(json.clientId),
+      opId: String(json.opId),
+      clientTime: Number(json.clientTime),
+      serverTime: Timestamp.now(),
+    };
+
+    if (json.type === "create" || json.type === "edit") docData.text = String(json.text ?? "");
+    if (json.type === "reaction") {
+      docData.emoji = String((json.emoji ?? "").trim());
+      docData.op = json.op === "remove" ? "remove" : "add";
+    }
+    if (json.type === "reply") {
+      docData.text = String(json.text ?? "");
+      docData.replyTo = String(json.replyTo ?? "");
+    }
+    // 兼容 payload（比如方案A塞的控制事件）
+    if (json.payload != null) docData.payload = json.payload;
+  }
+
+  // 幂等：仍用 opId 作为 docId
+  const ref = eventsCol(db, String(isV1 ? h.chatId : json.chatId)).doc(String(isV1 ? h.opId : json.opId));
   await ref.set(docData, { merge: false });
 
   return NextResponse.json({ ok: true });

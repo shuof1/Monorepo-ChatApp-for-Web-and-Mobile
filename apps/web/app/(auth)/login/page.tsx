@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getFirebaseAuth } from '../../../lib/firebase';
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from 'firebase/auth';
-
+import { registerCurrentDeviceInFirestore } from '../../../lib/registerDevice';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -76,6 +76,8 @@ export default function LoginPage() {
                 throw new Error(j?.error || 'Login API failed');
             }
 
+            await registerCurrentDeviceInFirestore(cred.user.uid);
+            
             const meRes=await fetch('api/user/me',{credentials:'include',cache:'no-store'});
             if(!meRes.ok){
                 const j = await meRes.json().catch(() => ({}));

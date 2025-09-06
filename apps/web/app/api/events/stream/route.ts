@@ -17,7 +17,7 @@ function toChatEvent(raw: any) {
   };
   if (raw?.type === "create" || raw?.type === "edit") base.text = String(raw?.text ?? "");
   if (raw?.type === "reaction") { base.emoji = String((raw?.emoji ?? "").trim()); base.op = raw?.op === "remove" ? "remove" : "add"; }
-  if (raw?.type === "reply")   { base.text = String(raw?.text ?? ""); base.replyTo = String(raw?.replyTo ?? ""); }
+  if (raw?.type === "reply") { base.text = String(raw?.text ?? ""); base.replyTo = String(raw?.replyTo ?? ""); }
   return base;
 }
 
@@ -37,26 +37,61 @@ export async function GET(req: NextRequest) {
   const stream = new ReadableStream({
     start(controller) {
       const enc = new TextEncoder();
+      let closed = false;
+      let unsub: (() => void) | null = null;
+      let hb: any;
 
+      const safeEnq = (s: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(enc.encode(s));
+        } catch {
+          cleanup();
+        }
+      }
       // 心跳，防止代理断开
-      const hb = setInterval(() => controller.enqueue(enc.encode(`: ping\n\n`)), 15000);
+      hb = setInterval(() => safeEnq(`: ping\n\n`), 15000);
 
-      const unsub = q.onSnapshot(
+      unsub = q.onSnapshot(
         snap => {
           for (const ch of snap.docChanges()) {
             if (ch.type !== "added") continue;
+            const d = ch.doc.data();
+            // v1 事件（有 header/body/sig）优先：原样透传
+            if (d?.v === 1 && d?.header?.type) {
+              const id = String((d.header?.serverTimeMs ?? d.header?.clientTime) ?? Date.now());
+              safeEnq(`id: ${id}\n`);
+              safeEnq(`data: ${JSON.stringify({ header: d.header, body: d.body ?? null, sig: d.sig ?? null })}\n\n`);
+              continue;
+            }
+            // v0 扁平事件
             const ev = toChatEvent(ch.doc.data());
             const id = String(ev.serverTimeMs ?? ev.clientTime); // SSE 事件 id（用于断点续传）
-            controller.enqueue(enc.encode(`id: ${id}\n`));
-            controller.enqueue(enc.encode(`data: ${JSON.stringify(ev)}\n\n`));
+            safeEnq(`id: ${id}\n`);
+            safeEnq(`data: ${JSON.stringify(ev)}\n\n`);
           }
         },
-        err => controller.enqueue(enc.encode(`event: error\ndata: ${JSON.stringify(String(err))}\n\n`))
+        err => {
+          // 推送一条错误事件后收尾
+          safeEnq(`event: error\ndata: ${JSON.stringify(String(err?.message || err))}\n\n`);
+          cleanup();
+        }
       );
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        try { clearInterval(hb); } catch { }
+        try { unsub?.(); } catch { }
+        try { controller.close(); } catch { }
+      };
 
-      (controller as any)._cleanup = () => { clearInterval(hb); unsub(); };
+      // 客户端断开（包括页面切换、组件卸载、网络抖动）
+      req.signal.addEventListener("abort", cleanup);
+
+      // 把清理函数挂上，便于 ReadableStream.cancel 调用
+      (controller as any)._cleanup = cleanup;
     },
-    cancel() { try { (this as any)._cleanup?.(); } catch {} },
+    cancel() { try { (this as any)._cleanup?.(); } catch { } },
   });
 
   return new Response(stream, {

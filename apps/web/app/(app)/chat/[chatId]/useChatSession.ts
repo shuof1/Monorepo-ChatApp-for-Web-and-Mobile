@@ -2,7 +2,7 @@
 "use client";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { createChatSession } from "../../../../lib/engine";
-import type { ChatMsg } from "sync-engine";
+import type { ChatMsg, E2EEInvite, E2EEAck } from "sync-engine";
 import type { User } from "firebase/auth";
 
 /**
@@ -11,8 +11,23 @@ import type { User } from "firebase/auth";
  * - 提供 create/edit/delete 的便捷方法（自动填 authorId）
  */
 export function useChatSession(chatId: string, me: User | null) {
-  const session = useMemo(() => createChatSession(chatId), [chatId]);
+
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [pendingInvite, setPendingInvite] = useState<E2EEInvite | null>(null);
+  const [lastAck, setLastAck] = useState<E2EEAck | null>(null);
+  const session = useMemo(() => createChatSession(chatId, {
+    onInvite: (invite) => {
+      const myUid = me?.uid;
+      if (!myUid) return;
+      if (invite.header.authorId === myUid) return;
+      console.log("[useChatSession] received e2ee_invite", invite);
+      setPendingInvite(invite);
+    },
+    onAck: (ack) => {
+      console.log("[useChatSession] received e2ee_ack", ack);
+      setLastAck(ack);
+    }
+  }), [chatId,me?.uid]);
 
   // 订阅 fold 后的消息（这里简单转成数组，你也可以加排序）
   useEffect(() => {
@@ -88,6 +103,27 @@ export function useChatSession(chatId: string, me: User | null) {
     [session, me?.uid, chatId]
   );
 
+  const inviteE2EE = useCallback(
+    async (inviteeUserId: string) => {
+      const inviterUserId = me?.uid;
+      if (!inviterUserId) return;
+      return await session.inviteE2EE(inviterUserId, inviteeUserId);
+    },
+    [session, me?.uid]
+  )
+
+  // —— 新增：同意 E2EE（用 pendingInvite） —— //
+  const acceptE2EE = useCallback(
+    async () => {
+      const accepterUserId = me?.uid;
+      if (!accepterUserId || !pendingInvite) return;
+      const ack = await session.acceptE2EE(pendingInvite, accepterUserId);
+      setPendingInvite(null);
+      return ack;
+    },
+    [session, me?.uid, pendingInvite]
+  );
+
 
   return {
     session,          // 如果需要直接访问底层 API 也在这里
@@ -98,5 +134,10 @@ export function useChatSession(chatId: string, me: User | null) {
     addReaction,       // ✅ 新增
     removeReaction,    // ✅ 新增
     toggleReaction,    // ✅ 新增
+    // 新增
+    inviteE2EE,
+    acceptE2EE,
+    pendingInvite,
+    lastAck,
   };
 }

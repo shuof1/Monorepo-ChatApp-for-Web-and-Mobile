@@ -7,21 +7,10 @@ settings:
 overrides:
   firebase: 12.1.0
 
-patchedDependencies:
-  loro-react-native@1.5.4:
-    hash: 8b06b6ca004e07f58b4287b1e4bce6e3cc325425df71cbe3ac4c461996df1635
-    path: patches/loro-react-native@1.5.4.patch
-
 importers:
 
   .:
     devDependencies:
-      '@babel/plugin-proposal-class-properties':
-        specifier: ^7.18.6
-        version: 7.18.6(@babel/core@7.28.3)
-      '@babel/plugin-proposal-decorators':
-        specifier: ^7.28.0
-        version: 7.28.0(@babel/core@7.28.3)
       concurrently:
         specifier: ^9.2.0
         version: 9.2.0
@@ -91,9 +80,6 @@ importers:
       expo-status-bar:
         specifier: ~2.2.3
         version: 2.2.3(react-native@0.79.5(@babel/core@7.28.3)(@react-native-community/cli@20.0.1(typescript@5.9.2))(@types/react@19.1.10)(react@19.0.0))(react@19.0.0)
-      loro-react-native:
-        specifier: ^1.5.4
-        version: 1.5.4(patch_hash=8b06b6ca004e07f58b4287b1e4bce6e3cc325425df71cbe3ac4c461996df1635)(react-native@0.79.5(@babel/core@7.28.3)(@react-native-community/cli@20.0.1(typescript@5.9.2))(@types/react@19.1.10)(react@19.0.0))(react@19.0.0)
       react:
         specifier: 19.0.0
         version: 19.0.0
@@ -176,6 +162,9 @@ importers:
       firebase:
         specifier: 12.1.0
         version: 12.1.0
+      libsodium-wrappers:
+        specifier: ^0.7.15
+        version: 0.7.15
       loro-crdt:
         specifier: ^1.5.11
         version: 1.5.11
@@ -213,6 +202,9 @@ importers:
       '@types/cookie':
         specifier: ^1.0.0
         version: 1.0.0
+      '@types/libsodium-wrappers':
+        specifier: ^0.7.14
+        version: 0.7.14
       '@types/node':
         specifier: ^24.2.1
         version: 24.3.0
@@ -495,13 +487,6 @@ packages:
     resolution: {integrity: sha512-7+Ey1mAgYqFAx2h0RuoxcQT5+MlG3GTV0TQrgr7/ZliKsm/MNDxVVutlWaziMq7wJNAz8MTqz55XLpWvva6StA==}
     engines: {node: '>=6.0.0'}
     hasBin: true
-
-  '@babel/plugin-proposal-class-properties@7.18.6':
-    resolution: {integrity: sha512-cumfXOF0+nzZrrN8Rf0t7M+tF6sZc7vhQwYQck9q1/5w2OExlD+b4v4RpMJFaV1Z7WcDRgO6FqvxqxGlwo+RHQ==}
-    engines: {node: '>=6.9.0'}
-    deprecated: This proposal has been merged to the ECMAScript standard and thus this plugin is no longer maintained. Please use @babel/plugin-transform-class-properties instead.
-    peerDependencies:
-      '@babel/core': ^7.0.0-0
 
   '@babel/plugin-proposal-decorators@7.28.0':
     resolution: {integrity: sha512-zOiZqvANjWDUaUS9xMxbMcK/Zccztbe/6ikvUXaG9nsPH3w6qh5UaPGAnirI/WhIbZ8m3OHU0ReyPrknG+ZKeg==}
@@ -2139,6 +2124,9 @@ packages:
   '@types/jsonwebtoken@9.0.10':
     resolution: {integrity: sha512-asx5hIG9Qmf/1oStypjanR7iKTv0gXQ1Ov/jfrX6kS/EO0OFni8orbmGCn0672NHR3kXHwpAwR+B368ZGN/2rA==}
 
+  '@types/libsodium-wrappers@0.7.14':
+    resolution: {integrity: sha512-5Kv68fXuXK0iDuUir1WPGw2R9fOZUlYlSAa0ztMcL0s0BfIDTqg9GXz8K30VJpPP3sxWhbolnQma2x+/TfkzDQ==}
+
   '@types/lodash.isequal@4.5.8':
     resolution: {integrity: sha512-uput6pg4E/tj2LGxCZo9+y27JNyB2OZuuI/T5F+ylVDYuqICLG2/ktjxx0v6GvVntAf8TvEzeQLcV0ffRirXuA==}
 
@@ -3569,6 +3557,12 @@ packages:
     resolution: {integrity: sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A==}
     engines: {node: '>=6'}
 
+  libsodium-wrappers@0.7.15:
+    resolution: {integrity: sha512-E4anqJQwcfiC6+Yrl01C1m8p99wEhLmJSs0VQqST66SbQXXBoaJY0pF4BNjRYa/sOQAxx6lXAaAFIlx+15tXJQ==}
+
+  libsodium@0.7.15:
+    resolution: {integrity: sha512-sZwRknt/tUpE2AwzHq3jEyUU5uvIZHtSssktXq7owd++3CSgn8RGrv6UZJJBpP7+iBghBqe7Z06/2M31rI2NKw==}
+
   lighthouse-logger@1.4.2:
     resolution: {integrity: sha512-gPWxznF6TKmUHrOQjlVo2UbaL2EJ71mb2CCeRs/2qBpi4L/g4LUVc9+3lKQ6DTUZwJswfM7ainGrLO1+fOqa2g==}
 
@@ -3786,12 +3780,6 @@ packages:
 
   loro-crdt@1.5.11:
     resolution: {integrity: sha512-RrcqJhG9vkPnUPJjVAdie5KdADCcey1JUDqpOk5vgzOUy9idcHliZXf3d7Z8yAUTsGeHLfsG2xRg9aE0tHw3WA==}
-
-  loro-react-native@1.5.4:
-    resolution: {integrity: sha512-xSPu/NtwXPZpIDdJ4IXMNsQWDWrY8isNvroQPNTT2tvbe8Xgj+WPbhtuWHnHRkDQkgjA0MWdRVZ65y2ucjJ7VA==}
-    peerDependencies:
-      react: '*'
-      react-native: '*'
 
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
@@ -5082,10 +5070,6 @@ packages:
     resolution: {integrity: sha512-6t3foTQI9qne+OZoVQB/8x8rk2k1eVy1gRXhV3oFQ5T6R1dqQ1xtin3XqSlx3+ATBkliTaR/hHyJBm+LVPNM8w==}
     engines: {node: '>=4'}
 
-  uniffi-bindgen-react-native@0.28.3-5:
-    resolution: {integrity: sha512-IOgKr4D+iHYmigAoV03Yuti94l8egKLADXqw/sE0Oyk7FOVexczFr+Kztnx2aHiCBnNv39gSfRCmLGd3i9AFaw==}
-    hasBin: true
-
   unique-string@2.0.0:
     resolution: {integrity: sha512-uNaeirEPvpZWSgzwsPGtU2zVSTrn/8L5q/IexZmH0eH6SA73CmAA5U4GwORTxQAZs95TAXLNqeLoPPNO5gZfWg==}
     engines: {node: '>=8'}
@@ -5578,14 +5562,6 @@ snapshots:
   '@babel/parser@7.28.3':
     dependencies:
       '@babel/types': 7.28.2
-
-  '@babel/plugin-proposal-class-properties@7.18.6(@babel/core@7.28.3)':
-    dependencies:
-      '@babel/core': 7.28.3
-      '@babel/helper-create-class-features-plugin': 7.28.3(@babel/core@7.28.3)
-      '@babel/helper-plugin-utils': 7.27.1
-    transitivePeerDependencies:
-      - supports-color
 
   '@babel/plugin-proposal-decorators@7.28.0(@babel/core@7.28.3)':
     dependencies:
@@ -7614,6 +7590,8 @@ snapshots:
       '@types/ms': 2.1.0
       '@types/node': 24.3.0
 
+  '@types/libsodium-wrappers@0.7.14': {}
+
   '@types/lodash.isequal@4.5.8':
     dependencies:
       '@types/lodash': 4.17.20
@@ -9284,6 +9262,12 @@ snapshots:
 
   leven@3.1.0: {}
 
+  libsodium-wrappers@0.7.15:
+    dependencies:
+      libsodium: 0.7.15
+
+  libsodium@0.7.15: {}
+
   lighthouse-logger@1.4.2:
     dependencies:
       debug: 2.6.9
@@ -9447,12 +9431,6 @@ snapshots:
       js-tokens: 4.0.0
 
   loro-crdt@1.5.11: {}
-
-  loro-react-native@1.5.4(patch_hash=8b06b6ca004e07f58b4287b1e4bce6e3cc325425df71cbe3ac4c461996df1635)(react-native@0.79.5(@babel/core@7.28.3)(@react-native-community/cli@20.0.1(typescript@5.9.2))(@types/react@19.1.10)(react@19.0.0))(react@19.0.0):
-    dependencies:
-      react: 19.0.0
-      react-native: 0.79.5(@babel/core@7.28.3)(@react-native-community/cli@20.0.1(typescript@5.9.2))(@types/react@19.1.10)(react@19.0.0)
-      uniffi-bindgen-react-native: 0.28.3-5
 
   loupe@3.2.1: {}
 
@@ -10907,8 +10885,6 @@ snapshots:
   unicode-match-property-value-ecmascript@2.2.0: {}
 
   unicode-property-aliases-ecmascript@2.1.0: {}
-
-  uniffi-bindgen-react-native@0.28.3-5: {}
 
   unique-string@2.0.0:
     dependencies:

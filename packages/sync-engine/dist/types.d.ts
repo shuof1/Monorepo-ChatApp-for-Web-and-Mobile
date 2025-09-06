@@ -57,4 +57,78 @@ export type ChatState = {
     byId: Record<string, ChatMsg>;
 };
 export type ApplyEvent = (state: ChatState, ev: ChatEvent) => ChatState;
+/** ===== E2EE 相关 ===== **/
+export type ClearHeader = {
+    v: 1;
+    chatId: string;
+    type: 'create' | 'edit' | 'delete' | 'reaction' | 'reply' | 'e2ee_invite' | 'e2ee_ack';
+    messageId: string;
+    authorId: string;
+    clientId: string;
+    deviceId?: string;
+    clientTime: number;
+    opId: string;
+    target?: {
+        userId: string;
+        deviceId?: string;
+        clientId?: string;
+    };
+    e2ee?: {
+        mode: 'device-bound';
+        receiverDeviceId?: string;
+        receiverClientId?: string;
+        ephPubKey?: string;
+    };
+    sig?: string;
+};
+export type SecretBody = {
+    text?: string;
+    payload?: any;
+    reaction?: {
+        emoji: string;
+        op: 'add' | 'remove';
+    };
+    replyTo?: string;
+};
+export type EncryptedEvent = {
+    header: ClearHeader;
+    ciphertext: string;
+    nonce: string;
+};
+export type PlainEvent = ChatEvent;
+export type E2EEInvite = {
+    header: Omit<ClearHeader, 'type'> & {
+        type: 'e2ee_invite';
+        v: 1;
+    };
+    body: {
+        inviterUserId: string;
+        inviterDeviceId?: string;
+        inviterClientId?: string;
+        inviterDevicePubX25519: string;
+        inviterSignPubEd25519?: string;
+        suggestedChatId: string;
+        note?: string;
+    };
+    sig?: string;
+};
+export type E2EEAck = {
+    header: Omit<ClearHeader, 'type'> & {
+        type: 'e2ee_ack';
+        v: 1;
+    };
+    body: {
+        accepterUserId: string;
+        accepterDeviceId?: string;
+        accepterClientId?: string;
+        accepterDevicePubX25519: string;
+        accepterSignPubEd25519?: string;
+        acceptedChatId: string;
+    };
+    sig?: string;
+};
+export type WireEvent = PlainEvent | EncryptedEvent | E2EEInvite | E2EEAck;
+export declare const isEncryptedEvent: (w: WireEvent) => w is EncryptedEvent;
+export declare const isE2EEInvite: (w: WireEvent) => w is E2EEInvite;
+export declare const isE2EEAck: (w: WireEvent) => w is E2EEAck;
 export {};

@@ -26,7 +26,6 @@
     "expo-dev-client": "~5.2.4",
     "expo-linear-gradient": "~14.1.5",
     "expo-status-bar": "~2.2.3",
-    "loro-react-native": "^1.5.4",
     "react": "19.0.0",
     "react-native": "0.79.5",
     "react-native-date-picker": "^5.0.13",

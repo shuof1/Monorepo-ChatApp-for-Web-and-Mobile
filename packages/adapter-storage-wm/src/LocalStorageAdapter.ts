@@ -73,38 +73,38 @@ export class LocalStorageAdapter {
       if (existing) {
         await existing.update(rec => {
           // 精确字段更新，避免 _raw 覆盖误伤
-          rec.remoteId   = msg.remoteId ?? null
-          rec.chatId     = msg.chatId
-          rec.authorId   = msg.authorId
-          rec.text       = msg.text ?? null
-          rec.sortKey    = msg.sortKey
-          rec.createdAt  = msg.createdAt
-          rec.editedAt   = msg.editedAt ?? null
-          rec.deletedAt  = msg.deletedAt ?? null
-          rec.version    = msg.version ?? null
-          rec.lamport    = msg.lamport ?? null
-          rec.status     = msg.status ?? null
-          rec.payload    = (msg as any).payload ?? null
-          rec.localOnly  = msg.localOnly ?? null
+          rec.remoteId = msg.remoteId ?? null
+          rec.chatId = msg.chatId
+          rec.authorId = msg.authorId
+          rec.text = msg.text ?? null
+          rec.sortKey = msg.sortKey
+          rec.createdAt = msg.createdAt
+          rec.editedAt = msg.editedAt ?? null
+          rec.deletedAt = msg.deletedAt ?? null
+          rec.version = msg.version ?? null
+          rec.lamport = msg.lamport ?? null
+          rec.status = msg.status ?? null
+          rec.payload = (msg as any).payload ?? null
+          rec.localOnly = msg.localOnly ?? null
         })
         return existing
       }
 
       // 不存在则创建
       return await db.get<Message>(TABLES.messages).create(rec => {
-        rec.remoteId   = msg.remoteId ?? null
-        rec.chatId     = msg.chatId
-        rec.authorId   = msg.authorId
-        rec.text       = msg.text ?? null
-        rec.sortKey    = msg.sortKey
-        rec.createdAt  = msg.createdAt
-        rec.editedAt   = msg.editedAt ?? null
-        rec.deletedAt  = msg.deletedAt ?? null
-        rec.version    = msg.version ?? null
-        rec.lamport    = msg.lamport ?? null
-        rec.status     = msg.status ?? null
-        rec.payload    = (msg as any).payload ?? null
-        rec.localOnly  = msg.localOnly ?? null
+        rec.remoteId = msg.remoteId ?? null
+        rec.chatId = msg.chatId
+        rec.authorId = msg.authorId
+        rec.text = msg.text ?? null
+        rec.sortKey = msg.sortKey
+        rec.createdAt = msg.createdAt
+        rec.editedAt = msg.editedAt ?? null
+        rec.deletedAt = msg.deletedAt ?? null
+        rec.version = msg.version ?? null
+        rec.lamport = msg.lamport ?? null
+        rec.status = msg.status ?? null
+        rec.payload = (msg as any).payload ?? null
+        rec.localOnly = msg.localOnly ?? null
       })
     })
   }
@@ -166,22 +166,23 @@ export class LocalStorageAdapter {
   }
 
   /** 设置 KV（游标/状态） */
-  async setKv(key: string, value: any): Promise<void> {
+  async setKv<T = any>(key: string, value: any): Promise<void> {
     const db = getDB()
     await db.write(async () => {
       const rs = await db.get<Kv>(TABLES.kv).query(Q.where('k', key), Q.take(1)).fetch()
       const now = Date.now()
+      const payload = JSON.stringify(value);
       const found = rs[0]
       if (found) {
         await found.update(rec => {
           rec.k = key
-          rec.v = value
+          rec.v = payload
           rec.updatedAt = now
         })
       } else {
         await db.get<Kv>(TABLES.kv).create(rec => {
           rec.k = key
-          rec.v = value
+          rec.v = payload
           rec.updatedAt = now
         })
       }
@@ -194,7 +195,17 @@ export class LocalStorageAdapter {
     return await db.read(async () => {
       const rs = await db.get<Kv>(TABLES.kv).query(Q.where('k', key), Q.take(1)).fetch()
       const found = rs[0]
-      return found ? (found.v as T) : null
+      if (!found) return null
+      const raw= (found as any).v as string;
+      if(raw ==null) return null;
+      try {
+        const parsed= JSON.parse(raw) as T;
+        return parsed;
+      } catch (e) {
+        console.warn(`[LocalStorageAdapter] failed to parse KV for key=${key}:`, e);
+        return raw as unknown as T;
+      }
+
     })
   }
 }

@@ -25,7 +25,7 @@ export default function ChatPage() {
   // const [messages, setMessages] = useState<ChatMsg[]>([]);
   // const [message,setMessages] = useChatSession(chatId,me);
   const { messages, sendMessage, editMessage, deleteMessage,
-    toggleReaction
+    toggleReaction, inviteE2EE, acceptE2EE, pendingInvite, lastAck
   } = useChatSession(chatId, me ?? null);
   const EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '😢'];
   const [input, setInput] = useState('');
@@ -81,7 +81,29 @@ export default function ChatPage() {
         <h3 style={{ margin: 0, fontWeight: 700 }}>
           Chat {otherName ? `with ${otherName}` : ''}
         </h3>
+        <button
+         className='px-3 py-1 rounded bg-blue-600 text-white'
+         onClick={()=> otherId && inviteE2EE(otherId)}
+         disabled={!otherId}>
+          Start E2EE Chat
+         </button>
       </header>
+
+      {}{/* Pending E2EE Invite Notification */}
+      {pendingInvite && (
+        <div className="p-3 rounded border bg-amber-50">
+          <div className="mb-2"> He/She invites E2EE Chat </div>
+          <button
+            className="px-3 py-1 rounded bg-green-600 text-white"
+            onClick={() => acceptE2EE()}>
+              accept E2EE Invite
+            </button>
+        </div>
+      )}
+
+      {lastAck && (
+        <div className="text-sm text-green-700"> E2EE Chat ✔</div>
+      )}
 
       {/* Messages */}
       <div

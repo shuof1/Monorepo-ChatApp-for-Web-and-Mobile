@@ -9,6 +9,8 @@ import {
     type ChatEvent,
     type ChatMsg,
     type Millis,
+    type E2EEInvite,
+    E2EEAck,
 } from "sync-engine";
 import { LoroDoc } from "loro-crdt";
 import { applyEventToLoro, getAllMessagesFromDoc } from "./loro-utils";
@@ -20,8 +22,207 @@ import {
 } from 'adapter-storage-wm';
 import { LoroText, LoroMap } from 'loro-crdt';
 import { getMessageFromDoc } from '../utils/loro-readers';
+import { ensureDeviceId, ensureClientId } from "./device";
+import * as sodium from 'libsodium-wrappers';
 
-const deviceId = "web-" + uuid();
+const deviceId = ensureDeviceId();     // ✅ 稳定、持久
+const clientId = ensureClientId();     // ✅ 路由/Outbox用，可重置
+const local = createLocalStorage();
+
+// ---- E2EE keys & utils (minimal) ----
+type DeviceKeyPair = { pub: string; priv: string }; // base64 raw
+type DeviceKeys = { deviceId: string; clientId: string; x25519: DeviceKeyPair; ed25519?: DeviceKeyPair };
+
+const ab = (b64: string) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+const b64 = (buf: ArrayBuffer | Uint8Array) => {
+    const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+    return btoa(s);
+};
+
+async function genEd25519(): Promise<DeviceKeyPair> {
+    const kp = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const pub = await crypto.subtle.exportKey("raw", kp.publicKey);
+    const priv = await crypto.subtle.exportKey("pkcs8", kp.privateKey);
+    return { pub: b64(pub), priv: b64(priv) };
+}
+
+async function genX25519(): Promise<DeviceKeyPair> {
+    await sodium.ready;
+    const keypair = sodium.crypto_kx_keypair();
+    return {
+        pub: b64(keypair.publicKey),
+        priv: b64(keypair.privateKey),
+    };
+}
+
+async function importX25519Priv(b64pkcs8: string) {
+    return await crypto.subtle.importKey("pkcs8", ab(b64pkcs8), { name: "X25519" }, false, ["deriveBits"]);
+}
+async function importX25519Pub(b64raw: string) {
+    return await crypto.subtle.importKey("raw", ab(b64raw), { name: "X25519" }, false, []);
+}
+async function importEd25519Priv(b64pkcs8: string) {
+    return await crypto.subtle.importKey("pkcs8", ab(b64pkcs8), { name: "Ed25519" }, false, ["sign"]);
+}
+async function importEd25519Pub(b64raw: string) {
+    return await crypto.subtle.importKey("raw", ab(b64raw), { name: "Ed25519" }, false, ["verify"]);
+}
+
+// —— 稳定序列化：按 key 排序 + 过滤 undefined —— //
+function canonical(...objs: any[]): Uint8Array {
+    const stable = (o: any): any =>
+        Array.isArray(o)
+            ? o.map(stable)
+            : o && typeof o === "object"
+                ? Object.keys(o)
+                    .filter(k => o[k] !== undefined)
+                    .sort()
+                    .reduce((acc, k) => { acc[k] = stable(o[k]); return acc; }, {} as any)
+                : o;
+    const s = JSON.stringify(objs.map(stable));
+    return new TextEncoder().encode(s);
+}
+
+function toArrayBuffer(src: Uint8Array | ArrayBuffer): ArrayBuffer {
+    if (src instanceof ArrayBuffer) return src;
+    // 只取有效视图区域，避免把整个底层 buffer 传进去
+    const { buffer, byteOffset, byteLength } = src;
+    return buffer.slice(byteOffset, byteOffset + byteLength) as ArrayBuffer;
+}
+// —— Ed25519 签名/验签（用你已有的 importEd25519Priv / importEd25519Pub） —— //
+async function signEd25519Bytes(bytes: Uint8Array, privB64: string): Promise<string> {
+    const sk = await importEd25519Priv(privB64);
+    const sig = await crypto.subtle.sign({ name: "Ed25519" }, sk, toArrayBuffer(bytes));
+    return b64(sig); // 仍用你现有的 base64
+}
+
+async function verifyEd25519Bytes(bytes: Uint8Array, sigB64: string, pubB64: string): Promise<boolean> {
+    if (!sigB64 || !pubB64) return false;
+    const pk = await importEd25519Pub(pubB64);
+    const ok = await crypto.subtle.verify({ name: "Ed25519" }, pk, ab(sigB64), toArrayBuffer(bytes));
+    return !!ok;
+}
+
+async function ensureDeviceKeys(local: ReturnType<typeof createLocalStorage>, deviceId: string, clientId: string): Promise<DeviceKeys> {
+    const didKey = 'kv:e2ee:me:deviceId';
+    const cidKey = 'kv:e2ee:me:clientId';
+    const xkKey = 'kv:e2ee:me:x25519';
+    const skKey = 'kv:e2ee:me:ed25519';
+
+    let savedDid = await local.getKv<string>(didKey);
+    let savedCid = await local.getKv<string>(cidKey);
+    let x25519 = await local.getKv<DeviceKeyPair>(xkKey);
+    let ed25519 = await local.getKv<DeviceKeyPair>(skKey);
+
+    // 首次生成
+    if (!x25519) x25519 = await genX25519();
+    if (!ed25519) ed25519 = await genEd25519();
+
+    if (savedDid !== deviceId) await local.setKv(didKey, deviceId);
+    if (savedCid !== clientId) await local.setKv(cidKey, clientId);
+    await local.setKv(xkKey, x25519);
+    await local.setKv(skKey, ed25519);
+
+    return { deviceId, clientId, x25519, ed25519 };
+}
+
+
+async function sendInvite(chatId: string, inviterUserId: string, inviteeUserId: string):
+    Promise<E2EEInvite> {
+    const me = await ensureDeviceKeys(local, deviceId, clientId);
+    const header: E2EEInvite['header'] = {
+        v: 1,
+        type: 'e2ee_invite',
+        chatId,
+        messageId: uuid(),
+        authorId: inviterUserId,
+        clientId: me.clientId,
+        clientTime: now(),
+        opId: uuid(),
+        target: { userId: inviteeUserId },
+    };
+    const body: E2EEInvite['body'] = {
+        inviterUserId,
+        inviterDeviceId: deviceId,
+        inviterClientId: me.clientId,
+        inviterDevicePubX25519: me.x25519.pub,
+        inviterSignPubEd25519: me.ed25519?.pub,
+        suggestedChatId: chatId,
+
+    };
+
+    // ★ 生成签名
+    if (!me.ed25519?.priv) throw new Error("Ed25519 private key missing");
+    const bytes = canonical(header, body);
+    const sig = await signEd25519Bytes(bytes, me.ed25519.priv);
+
+    const invite: E2EEInvite = { header, body, sig };
+    await apiAppendWire(invite as any);
+    return invite;
+
+}
+
+async function sendAck(invite: E2EEInvite, accepterUserId: string): Promise<E2EEAck> {
+
+    const me = await ensureDeviceKeys(local, deviceId, clientId);
+
+    // ★ 先验签对方 Invite
+    {
+        const bytes = canonical(invite.header, invite.body);
+        const ok = await verifyEd25519Bytes(
+            bytes,
+            invite.sig || "",
+            // 优先用包里携带的 signer 公钥；也可回退到你本地/Firestore 已缓存的设备公钥
+            invite.body.inviterSignPubEd25519 || ""
+        );
+        if (!ok) throw new Error("Invalid invite signature");
+    }
+
+    // 再存 A 的公钥信息（后续导出根密钥用）
+    const peer = {
+        clientId: invite.body.inviterClientId ?? invite.header.clientId,
+        x25519Pub: invite.body.inviterDevicePubX25519,
+        deviceId: invite.body.inviterDeviceId,
+        signPubEd25519: invite.body.inviterSignPubEd25519,
+    };
+    await local.setKv(`kv:e2ee:peer:${invite.body.suggestedChatId}`, peer);
+    const header: E2EEAck["header"] = {
+        v: 1,
+        type: "e2ee_ack",
+        chatId: invite.body.suggestedChatId,
+        messageId: newId(),
+        authorId: accepterUserId,
+        clientId: me.clientId,
+        clientTime: now(),
+        opId: newId(),
+        target: {
+            userId: invite.header.authorId,
+            clientId: invite.header.clientId,   // ✅ 用 clientId 精确回发
+            deviceId: invite.body.inviterDeviceId, // 可选附带
+        },
+    };
+
+    const body: E2EEAck["body"] = {
+        accepterUserId,
+        accepterDeviceId: deviceId,           // ✅ 新增：携带本机 deviceId
+        accepterClientId: me.clientId,
+        accepterDevicePubX25519: me.x25519.pub,
+        accepterSignPubEd25519: me.ed25519?.pub,
+        acceptedChatId: invite.body.suggestedChatId,
+    };
+
+    // ★ 对 Ack 也签名
+    if (!me.ed25519?.priv) throw new Error("Ed25519 private key missing");
+    const bytes = canonical(header, body);
+    const sig = await signEd25519Bytes(bytes, me.ed25519.priv);
+
+    const ack: E2EEAck = { header, body, sig };
+    await apiAppendWire(ack as any);
+    return ack;
+}
+
 const newId = uuid;
 const now = () => Date.now() as Millis;
 const API_BASE = "/api/events";
@@ -35,6 +236,17 @@ async function apiList(chatId: string, opts?: { sinceMs?: Millis; limit?: number
     const res = await fetch(url.toString(), { credentials: "include", cache: "no-store" });
     if (!res.ok) throw new Error(`list ${res.status}`);
     return (await res.json()) as ChatEvent[];
+}
+
+async function apiAppendWire(ev: any): Promise<void> {
+    const res = await fetch(API_BASE, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ev),
+    });
+    if (!res.ok) throw new Error(`append ${res.status}`);
 }
 
 // 追加：POST /api/events
@@ -162,6 +374,9 @@ export interface ChatSession {
     addReaction(p: { chatId: string; messageId: string; emoji: string; authorId: string }): Promise<void>;
     removeReaction(p: { chatId: string; messageId: string; emoji: string; authorId: string }): Promise<void>;
     toggleReaction(p: { chatId: string; messageId: string; emoji: string; authorId: string }): Promise<void>;
+    // ✅ 新增
+    inviteE2EE(inviterUserId: string, inviteeUserId: string ): Promise<E2EEInvite>;
+    acceptE2EE( invite: E2EEInvite, accepterUserId: string ): Promise<E2EEAck>;
 }
 
 
@@ -227,10 +442,15 @@ function bindOnlineWakeOnce() {
 
 
 /** 为某个 chatId 创建一个会话（状态机 + 订阅） */
-export function createChatSession(chatId: string): ChatSession {
+export function createChatSession(chatId: string,
+    hooks?: {
+        onInvite?: (invite: E2EEInvite) => void;
+        onAck?: (ack: E2EEAck) => void;
+    }
+): ChatSession {
     // const ports = buildPorts();
 
-    const local = createLocalStorage();
+
     // const outbox = createOutbox();
     const outbox = getOutboxAdapterSingleton();
     const doc = new LoroDoc();
@@ -299,7 +519,7 @@ export function createChatSession(chatId: string): ChatSession {
 
     // —— 发送事件的最小封装 —— //
     const base = () => ({
-        clientId: deviceId,
+        clientId,
         opId: newId(),
         clientTime: now(),
     });
@@ -308,12 +528,13 @@ export function createChatSession(chatId: string): ChatSession {
     const seen = new Set<string>();
     const SEEN_MAX = 1024;
     const markSeen = (opId: string) => { seen.add(opId); if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value as string); };
-
+    
     const start = async () => {
         if (started) return;
         started = true;
         ensureOutboxRunnerOnce();   // 确保 Outbox Runner 启动
         bindOnlineWakeOnce();
+        await ensureDeviceKeys(local, deviceId, clientId);
         // 0) 先用本地快照“上屏”，离线可见
         await notifyFromLocalSnapshot();
         await hydrateDocFromLocalSnapshot();
@@ -333,6 +554,20 @@ export function createChatSession(chatId: string): ChatSession {
         // 2) 实时订阅（带 sinceMs）
         unsub = apiSubscribe(chatId, async (ev) => {
             if (seen.has(ev.opId)) return; // ✅ opId 去重更稳
+
+            const h = (ev as any).header;
+            if (h?.type === 'e2ee_invite') {
+                const invite = ev as unknown as E2EEInvite;
+                (hooks?.onInvite)?.(invite);
+                console.log('[ChatSession] received e2ee_invite event, skipping applyEventToLoro', { opId: ev.opId });
+                return;
+            }
+            if (h?.type === 'e2ee_ack') {
+                const ack = ev as unknown as E2EEAck;
+                (hooks?.onAck)?.(ack);
+                console.log('[ChatSession] received e2ee_ack event, skipping applyEventToLoro', { opId: ev.opId });
+                return;
+            }
 
             applyEventToLoro(doc, ev);
 
@@ -517,6 +752,14 @@ export function createChatSession(chatId: string): ChatSession {
         }
     }
 
+    async function inviteE2EE(inviterUserId: string, inviteeUserId: string) {
+        return await sendInvite(chatId, inviterUserId, inviteeUserId);
+    }
+
+    async function acceptE2EE(invite: E2EEInvite, accepterUserId: string) {
+        return await sendAck(invite, accepterUserId);
+    }
+
     return {
         getState: () => getStateFromDoc(),
         subscribe(fn) {
@@ -534,5 +777,8 @@ export function createChatSession(chatId: string): ChatSession {
         addReaction,
         removeReaction,
         toggleReaction,
+        // ✅ 新增
+        inviteE2EE,
+        acceptE2EE,
     };
 }
