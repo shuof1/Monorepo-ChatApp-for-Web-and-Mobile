@@ -12,6 +12,8 @@ A modern web chat client built with Next.js and Firebase Firestore.
 
 - Message editing & deletion with CRDT consistency
 
+- End-to-End Encrypted (E2EE) chat sessions
+
 - Offline-first mode with local persistence
 
 - Responsive UI optimized for browsers
@@ -73,6 +75,9 @@ Platform-specific adapters bridging the sync-engine with persistence & backend:
 - **adapter-firestore-rn** → @react-native-firebase for RN
 
 - **adapter-storage-wm** → WatermelonDB (SQLite for RN, IndexedDB/LokiJS for Web)
+  
+- **adapter-firestore-admin** -> Used in API routes and backend services for event handling, ACL, and system tasks.
+
 
 📦 Located under `packages/`
 ## 🚀 Quick Start
@@ -116,11 +121,15 @@ monorepo-chatapp/
 ├── apps/
 │   ├── web/                     # Next.js web chat client
 │   └── mobile/                  # React Native mobile app
+│
 ├── packages/
 │   ├── sync-engine/             # Core CRDT sync engine
+│   ├── adapter-firestore-admin/ # Firestore admin adapter (server-side)
+│   ├── adapter-firestore-rn/    # Firestore adapter for React Native
 │   ├── adapter-firestore-web/   # Firestore adapter for Web
-│   ├── adapter-firestore-rn/    # Firestore adapter for RN
+│   ├── adapter-http-web/        # HTTP adapter for Web APIs
 │   └── adapter-storage-wm/      # WatermelonDB storage adapter
+│
 ├── turbo.json                   # Turborepo configuration
 ├── package.json                 # Root dependencies
 └── README.md                    # This documentation
