@@ -4,12 +4,50 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { createChatSession } from "../../../../lib/engine";
 import type { ChatMsg, E2EEInvite, E2EEAck } from "sync-engine";
 import type { User } from "firebase/auth";
-
+import { getLocal } from "../../../../lib/local";
+import { getDeviceId } from "../../../../lib/device";
+import { kvKeyE2EEBind, makeE2EEId } from "../../../../lib/e2ee-utils";
 /**
  * 最小可用 hook：
  * - 订阅并聚合消息
  * - 提供 create/edit/delete 的便捷方法（自动填 authorId）
  */
+async function persistE2EEBind(plainId: string, ack: E2EEAck) {
+  const local = getLocal();
+  const myDeviceId = getDeviceId(); 
+  if (!myDeviceId) return;
+
+  // 1) 这条 ack 是否属于当前明文会话
+  const acceptedChatId = (ack.body as any)?.acceptedChatId ?? ack.header.chatId;
+  if (acceptedChatId && acceptedChatId !== plainId) return;
+
+  // 2) 获取两端设备 ID（优先用 ack 自带字段）
+  let inviterDeviceId =
+    (ack.header as any)?.target?.deviceId ??
+    // 兜底：如果 ack 里没带，就从之前 invite 落的 peer 缓存取
+    (await local.getKv<any>(`kv:e2ee:peer:${plainId}`))?.deviceId ??
+    null;
+
+  const accepterDeviceId = (ack.body as any)?.accepterDeviceId ?? null;
+  if (!inviterDeviceId || !accepterDeviceId) return;
+
+  // 3) 防串端：只有当“本机设备”在这对配对设备里，才写绑定
+  if (myDeviceId !== inviterDeviceId && myDeviceId !== accepterDeviceId) {
+    // 不是本机参与的 E2EE，对本机不写 bind（可选：写一个占位标记显示🔒）
+    return;
+  }
+
+  // 4) 生成 e2eeId（如 ack 自带 e2eeId 也可优先用）
+  const e2eeId =
+    (ack as any).e2eeId ?? makeE2EEId(plainId, inviterDeviceId, accepterDeviceId);
+
+  const key = kvKeyE2EEBind(plainId, myDeviceId);
+  const existing = await local.getKv<string>(key);
+  if (existing !== e2eeId) {
+    await local.setKv(key, e2eeId);
+    window.dispatchEvent(new CustomEvent("e2ee:bind-updated", { detail: { plainId } }));
+  }
+}
 export function useChatSession(chatId: string, me: User | null) {
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -26,8 +64,9 @@ export function useChatSession(chatId: string, me: User | null) {
     onAck: (ack) => {
       console.log("[useChatSession] received e2ee_ack", ack);
       setLastAck(ack);
+      void persistE2EEBind(chatId, ack);
     }
-  }), [chatId,me?.uid]);
+  }), [chatId, me?.uid]);
 
   // 订阅 fold 后的消息（这里简单转成数组，你也可以加排序）
   useEffect(() => {
@@ -119,9 +158,11 @@ export function useChatSession(chatId: string, me: User | null) {
       if (!accepterUserId || !pendingInvite) return;
       const ack = await session.acceptE2EE(pendingInvite, accepterUserId);
       setPendingInvite(null);
+      // 立即写 KV，UI 能马上显示 “Go to E2EE”
+      void persistE2EEBind(chatId, ack);
       return ack;
     },
-    [session, me?.uid, pendingInvite]
+    [session, me?.uid, pendingInvite,chatId]
   );
 
 

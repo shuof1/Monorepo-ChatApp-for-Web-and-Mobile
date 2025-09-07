@@ -13,14 +13,15 @@ type BaseEvent = {
     opId: string;
     clientTime: Millis;
     serverTimeMs?: Millis;
+    payload?: any;   
 };
 export type ChatEvent = (BaseEvent & {
     type: 'create';
-    text: string;
+    text?: string;
     replyTo?: string;
 }) | (BaseEvent & {
     type: 'edit';
-    text: string;
+    text? : string;
 }) | (BaseEvent & {
     type: 'delete';
 }) | (BaseEvent & {

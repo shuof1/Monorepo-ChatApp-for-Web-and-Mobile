@@ -24,10 +24,13 @@ import { LoroText, LoroMap } from 'loro-crdt';
 import { getMessageFromDoc } from '../utils/loro-readers';
 import { ensureDeviceId, ensureClientId } from "./device";
 import * as sodium from 'libsodium-wrappers';
+import { getLocal } from "./local";
+
 
 const deviceId = ensureDeviceId();     // ✅ 稳定、持久
 const clientId = ensureClientId();     // ✅ 路由/Outbox用，可重置
-const local = createLocalStorage();
+const local = getLocal();
+
 
 // ---- E2EE keys & utils (minimal) ----
 type DeviceKeyPair = { pub: string; priv: string }; // base64 raw
@@ -223,6 +226,78 @@ async function sendAck(invite: E2EEInvite, accepterUserId: string): Promise<E2EE
     return ack;
 }
 
+const isE2EE = (chatId: string) => chatId.startsWith("e2ee:");
+const getPlainId = (e2eeId: string) => {
+    // 你的 parseE2EEId 已有，这里也可以直接 split
+    const parts = e2eeId.split(":"); // e2ee:<plainId>:<devA_devB>
+    return parts[1] ?? e2eeId;
+};
+
+// HKDF(SHA-256) 派生 32 字节会话密钥（基于我/对端 X25519 ECDH）
+async function hkdfSha256(secretRaw: ArrayBuffer, saltBytes: Uint8Array, info: Uint8Array, length = 32) {
+    const key = await crypto.subtle.importKey("raw", secretRaw, "HKDF", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits(
+        { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(saltBytes), info: new Uint8Array(info) },
+        key,
+        length * 8
+    );
+    return new Uint8Array(bits); // 32 bytes
+}
+
+async function deriveChatKey(plainId: string) {
+    // 取我方私钥 & 对端公钥（两边都得能拿到）
+    const me = await local.getKv<DeviceKeyPair>('kv:e2ee:me:x25519');
+    const peer = await local.getKv<{ x25519Pub: string }>(`kv:e2ee:peer:${plainId}`);
+    if (!me?.priv || !peer?.x25519Pub) throw new Error("E2EE peer/me key missing");
+
+    // WebCrypto 没有 x25519 ECDH 标准接口，采用 libsodium 实现（你已引入 sodium）
+    await sodium.ready;
+    const sk = sodium.from_base64(me.priv, sodium.base64_variants.ORIGINAL);
+    const pkPeer = sodium.from_base64(peer.x25519Pub, sodium.base64_variants.ORIGINAL);
+    // 注意：我们在保存时用的是“raw”私钥/公钥 base64；若与 sodium 格式不一致，需统一。
+    // 这里采用 sodium 的 crypto_scalarmult 实现 ECDH：
+    const secret = sodium.crypto_scalarmult(sk, pkPeer); // Uint8Array(32)
+
+    // 用 plainId 做 salt，固定 info（避免跨 chat 复用）
+    const salt = new TextEncoder().encode(`salt:${plainId}`);
+    const info = new TextEncoder().encode("wm-chat-e2ee:v1");
+    const key = await hkdfSha256(toArrayBuffer(secret), salt, info, 32);
+    return key; // Uint8Array(32)
+}
+
+async function encText(plainId: string, text: string) {
+    const keyBytes = await deriveChatKey(plainId);
+    const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["encrypt"]);
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    const aad = new TextEncoder().encode(`chat:${plainId}:v1`);
+    const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce, additionalData: aad }, key, new TextEncoder().encode(text));
+    return { v: 1, nonce: b64(nonce), ct: b64(ct) };
+}
+
+async function decText(plainId: string, enc: { v: number; nonce: string; ct: string }) {
+    const keyBytes = await deriveChatKey(plainId);
+    const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["decrypt"]);
+    const nonce = ab(enc.nonce);
+    const aad = new TextEncoder().encode(`chat:${plainId}:v1`);
+    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce, additionalData: aad }, key, ab(enc.ct));
+    return new TextDecoder().decode(pt);
+}
+
+async function maybeDecrypt(ev: ChatEvent): Promise<ChatEvent> {
+    if (!isE2EE(ev.chatId)) return ev;
+    const enc = (ev as any)?.payload?.enc;
+    if (!enc) return ev; // 老消息或系统事件
+    const plainId = getPlainId(ev.chatId);
+    try {
+        const text = await decText(plainId, enc);
+        return { ...ev, text } as ChatEvent;
+    } catch (e) {
+        console.warn("[E2EE] decrypt failed", e);
+        // 给 UI 一个占位文本
+        return { ...ev, text: "(unable to decrypt)" } as ChatEvent;
+    }
+}
+
 const newId = uuid;
 const now = () => Date.now() as Millis;
 const API_BASE = "/api/events";
@@ -375,8 +450,8 @@ export interface ChatSession {
     removeReaction(p: { chatId: string; messageId: string; emoji: string; authorId: string }): Promise<void>;
     toggleReaction(p: { chatId: string; messageId: string; emoji: string; authorId: string }): Promise<void>;
     // ✅ 新增
-    inviteE2EE(inviterUserId: string, inviteeUserId: string ): Promise<E2EEInvite>;
-    acceptE2EE( invite: E2EEInvite, accepterUserId: string ): Promise<E2EEAck>;
+    inviteE2EE(inviterUserId: string, inviteeUserId: string): Promise<E2EEInvite>;
+    acceptE2EE(invite: E2EEInvite, accepterUserId: string): Promise<E2EEAck>;
 }
 
 
@@ -528,7 +603,7 @@ export function createChatSession(chatId: string,
     const seen = new Set<string>();
     const SEEN_MAX = 1024;
     const markSeen = (opId: string) => { seen.add(opId); if (seen.size > SEEN_MAX) seen.delete(seen.values().next().value as string); };
-    
+
     const start = async () => {
         if (started) return;
         started = true;
@@ -543,8 +618,16 @@ export function createChatSession(chatId: string,
         // 1) 初次加载（带 sinceMs）
         const initial = await apiList(chatId, lastServerMs ? { sinceMs: lastServerMs } : undefined);
         for (const ev of initial) {
-            applyEventToLoro(doc, ev);
-            await applyRemoteEventToLocal(ev);
+            console.log("[E2EE] wire event", {
+                hasPayload: !!(ev as any).payload,
+                hasEnc: !!(ev as any)?.payload?.enc,
+                text: (ev as any).text,
+                type: ev.type,
+                opId: ev.opId,
+            });
+            const ev2 = await maybeDecrypt(ev);
+            applyEventToLoro(doc, ev2);
+            await applyRemoteEventToLocal(ev2);
             markSeen(ev.opId);
             lastServerMs = Math.max(lastServerMs, ev.serverTimeMs ?? ev.clientTime);
         }
@@ -566,12 +649,31 @@ export function createChatSession(chatId: string,
                 const ack = ev as unknown as E2EEAck;
                 (hooks?.onAck)?.(ack);
                 console.log('[ChatSession] received e2ee_ack event, skipping applyEventToLoro', { opId: ev.opId });
+                // 发起方（目标是我设备）就把接收方公钥保存起来
+                const plainId = ack.body.acceptedChatId ?? ack.header.chatId;
+                if (ack.header?.target?.deviceId === deviceId) {
+                    await local.setKv(`kv:e2ee:peer:${plainId}`, {
+                        clientId: ack.body.accepterClientId,
+                        x25519Pub: ack.body.accepterDevicePubX25519,
+                        deviceId: ack.body.accepterDeviceId,
+                        signPubEd25519: ack.body.accepterSignPubEd25519,
+                    });
+                }
+
+                console.log('[ChatSession] received e2ee_ack event, skipping applyEventToLoro', { opId: ev.opId });
                 return;
             }
+            console.log("[E2EE] wire event", {
+                hasPayload: !!(ev as any).payload,
+                hasEnc: !!(ev as any)?.payload?.enc,
+                text: (ev as any).text,
+                type: ev.type,
+                opId: ev.opId,
+            });
+            const ev2 = await maybeDecrypt(ev);
+            applyEventToLoro(doc, ev2);
 
-            applyEventToLoro(doc, ev);
-
-            await applyRemoteEventToLocal(ev);
+            await applyRemoteEventToLocal(ev2);
             markSeen(ev.opId);
             lastServerMs = Math.max(lastServerMs, ev.serverTimeMs ?? ev.clientTime);
             await local.setKv(`cursor:serverTime:${chatId}`, lastServerMs);
@@ -595,25 +697,38 @@ export function createChatSession(chatId: string,
             type: "create",
             chatId: p.chatId,
             messageId: p.messageId ?? newId(),
-            text: p.text,
             authorId: p.authorId,
             ...base(),
         };
 
-        applyEventToLoro(doc, ev);
-        await applyRemoteEventToLocal(ev);
+        let wire: ChatEvent;
+        let localEv: ChatEvent;
+        if (isE2EE(p.chatId)) {
+            const plainId = getPlainId(p.chatId);
+            const enc = await encText(plainId, p.text);
+            // 线上只带密文，避免泄露
+            wire = { ...ev, text: "", payload: { enc } };
+            // 本地 doc 用明文，保持 UI 正常
+            localEv = { ...ev, text: p.text };
+        } else {
+            wire = { ...ev, text: p.text };
+            localEv = { ...ev, text: p.text };
+        }
+
+        applyEventToLoro(doc, localEv);
+        await applyRemoteEventToLocal(localEv);
         notify();
 
         // 3) 入队 outbox，后台同步
         await outbox.enqueue({
             op: "create",
             chatId: p.chatId,
-            targetId: ev.messageId,
-            dedupeKey: `create:${p.chatId}:${ev.messageId}`,
-            lamport: ev.clientTime as number,
-            payload: ev, // 直接放完整事件，syncLoop 取出 append
+            targetId: localEv.messageId,
+            dedupeKey: `create:${p.chatId}:${localEv.messageId}`,
+            lamport: localEv.clientTime as number,
+            payload: wire, // ← 线上发密文
         });
-        console.log('[Outbox] enqueued', { type: 'create', opId: ev.opId, msgId: ev.messageId, online: navigator.onLine });
+        console.log('[Outbox] enqueued', { type: 'create', opId: wire.opId, msgId: wire.messageId, online: navigator.onLine });
         kickOutbox();
     };
 
@@ -622,24 +737,37 @@ export function createChatSession(chatId: string,
             type: "edit",
             chatId: p.chatId,
             messageId: p.messageId,
-            text: p.text,
             authorId: p.authorId,
             ...base(),
         };
-        applyEventToLoro(doc, ev);
-        await applyRemoteEventToLocal(ev);
+        let wire: ChatEvent;
+        let localEv: ChatEvent;
+        if (isE2EE(p.chatId)) {
+            const plainId = getPlainId(p.chatId);
+            const enc = await encText(plainId, p.text);
+            // 线上只带密文，避免泄露
+            wire = { ...ev, text: "", payload: { enc } };
+            // 本地 doc 用明文，保持 UI 正常
+            localEv = { ...ev, text: p.text };
+        } else {
+            wire = { ...ev, text: p.text };
+            localEv = { ...ev, text: p.text };
+        }
+        applyEventToLoro(doc, localEv);
+        await applyRemoteEventToLocal(localEv);
         notify();
 
         await outbox.enqueue({
             op: "edit",
             chatId: p.chatId,
-            targetId: ev.messageId,
-            dedupeKey: `edit:${p.chatId}:${ev.messageId}:${ev.clientTime}`,
-            lamport: ev.clientTime as number,
-            payload: ev,
+            targetId: localEv.messageId,
+            dedupeKey: `edit:${p.chatId}:${localEv.messageId}:${localEv.clientTime}`,
+            lamport: localEv.clientTime as number,
+            payload: wire,
         });
-        console.log('[Outbox] enqueued', { type: 'create', opId: ev.opId, msgId: ev.messageId, online: navigator.onLine });
+        console.log('[Outbox] enqueued', { type: 'edit', opId: wire.opId, msgId: wire.messageId, online: navigator.onLine });
         kickOutbox();
+
     };
 
     const del = async (p: { chatId: string; messageId: string; authorId: string }) => {

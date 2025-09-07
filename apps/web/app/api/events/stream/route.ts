@@ -18,6 +18,8 @@ function toChatEvent(raw: any) {
   if (raw?.type === "create" || raw?.type === "edit") base.text = String(raw?.text ?? "");
   if (raw?.type === "reaction") { base.emoji = String((raw?.emoji ?? "").trim()); base.op = raw?.op === "remove" ? "remove" : "add"; }
   if (raw?.type === "reply") { base.text = String(raw?.text ?? ""); base.replyTo = String(raw?.replyTo ?? ""); }
+  // ✅ 关键：把 payload 一并带回
+  if (raw?.payload != null) base.payload = raw.payload;
   return base;
 }
 

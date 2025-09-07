@@ -1,13 +1,18 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
 import { getFirebaseAuth } from '../../../../lib/firebase';
 import { useChatSession } from './useChatSession';
 
-
+import { getLocal } from "../../../../lib/local";
+import { kvKeyE2EEBind, makeE2EEId } from "../../../../lib/e2ee-utils";
+import { getDeviceId } from "../../../../lib/device";
 export default function ChatPage() {
+  const [e2eeId, setE2eeId] = useState<string | null>(null);
+  const [e2eeLoading, setE2eeLoading] = useState(false); // 初始就 false，避免“永久 …”
+  const [autoJumped, setAutoJumped] = useState(false);
   const router = useRouter();
   const params = useParams<{ chatId: string }>();
   const searchParams = useSearchParams();
@@ -31,11 +36,51 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const listRef = useRef<HTMLDivElement | null>(null);
 
+  // 封装成函数，便于多处触发
+  const readE2EEBind = useCallback(async () => {
+    const local = getLocal();
+    setE2eeLoading(true);
+    try {
+      const myDeviceId = getDeviceId(); // ✅ 改成 localStorage 来源
+      if (!myDeviceId || !chatId) {
+        setE2eeId(null);
+        return;
+      }
+      const key = kvKeyE2EEBind(chatId, myDeviceId);
+      const value = await local.getKv<string>(key);
+      console.log("[ChatPage] read e2ee bind from local", { key, value });
+      setE2eeId(value ?? null);
+    } finally {
+      setE2eeLoading(false);
+    }
+  }, [chatId]);
+
   // 未登录直接回登录页
   useEffect(() => {
     if (me === null) router.replace('/login');
-  }, [me, router]);
+    readE2EEBind();
+  }, [me?.uid, chatId, readE2EEBind]);
 
+  // 监听 engine 写入后的事件，总能刷新到
+  useEffect(() => {
+    const onUpdated = (e: Event) => {
+      const detailPlainId = (e as CustomEvent).detail?.plainId;
+      if (detailPlainId === chatId) readE2EEBind();
+    };
+    window.addEventListener("e2ee:bind-updated", onUpdated);
+    return () => window.removeEventListener("e2ee:bind-updated", onUpdated);
+  }, [chatId, readE2EEBind]);
+
+  // 收到 ack 也主动再读一次（防止事件丢失）
+  useEffect(() => {
+    if (lastAck) readE2EEBind();
+  }, [lastAck, readE2EEBind]);
+
+  const goToE2EE = useCallback(() => {
+    if (!e2eeId) return;
+    const q = otherName ? `?name=${encodeURIComponent(otherName)}` : "";
+    router.push(`/chat_e2ee/${encodeURIComponent(e2eeId)}${q}`);
+  }, [e2eeId, otherName, router]);
 
   // 发送消息（用事务防止覆盖）
   const onSend = async () => {
@@ -82,22 +127,23 @@ export default function ChatPage() {
           Chat {otherName ? `with ${otherName}` : ''}
         </h3>
         <button
-         className='px-3 py-1 rounded bg-blue-600 text-white'
-         onClick={()=> otherId && inviteE2EE(otherId)}
-         disabled={!otherId}>
-          Start E2EE Chat
-         </button>
+          className="px-3 py-1 rounded bg-blue-600 text-white"
+          onClick={() => (e2eeId ? goToE2EE() : (otherId && inviteE2EE(otherId)))}
+          disabled={!otherId || e2eeLoading}
+        >
+          {e2eeLoading ? "..." : e2eeId ? "Go to E2EE" : "Start E2EE Chat"}
+        </button>
       </header>
 
-      {}{/* Pending E2EE Invite Notification */}
+      { }{/* Pending E2EE Invite Notification */}
       {pendingInvite && (
         <div className="p-3 rounded border bg-amber-50">
           <div className="mb-2"> He/She invites E2EE Chat </div>
           <button
             className="px-3 py-1 rounded bg-green-600 text-white"
             onClick={() => acceptE2EE()}>
-              accept E2EE Invite
-            </button>
+            accept E2EE Invite
+          </button>
         </div>
       )}
 

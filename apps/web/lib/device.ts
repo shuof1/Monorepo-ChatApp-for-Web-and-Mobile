@@ -12,7 +12,9 @@ export function ensureDeviceId(): string {
   }
   return id;
 }
-
+export function getDeviceId(): string {
+  return ensureDeviceId();
+}
 // 可选：clientId 每次启动/每次登录生成一次（适合路由/Outbox会话）
 export function ensureClientId(reset = false): string {
   if (reset) localStorage.removeItem(CLIENT_ID_KEY);

@@ -37,6 +37,8 @@ function toChatEvent(raw: any) {
       base.replyTo = String(raw?.replyTo ?? "");
       break;
   }
+  // ✅ 关键：把 payload 一并带回
+  if (raw?.payload != null) base.payload = raw.payload;
   return base;
 }
 
